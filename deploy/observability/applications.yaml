@@ -1,6 +1,5 @@
-# Izleme yigini - GitOps ile. Tek seferlik bootstrap:
-#   kubectl apply -f deploy/observability/applications.yaml
-# Sonrasinda bu klasordeki her degisiklik ArgoCD ile uygulanir.
+# Izleme yigini - GitOps ile (app-of-apps). "hive" ArgoCD uygulamasi bu dosyayi
+# deploy/k8s -> ../observability uzerinden uygular; elle bir sey calistirilmaz.
 #
 # 1) kube-prometheus-stack (Helm): Prometheus + Alertmanager + Grafana + kube-state-metrics
 #    Hafif ayar: node-exporter kapali (node basina 8 pod siniri var), disk yok

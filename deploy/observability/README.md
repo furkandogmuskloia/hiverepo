@@ -6,7 +6,7 @@
 |---|---|---|
 | `kube-prometheus-stack` 91.5.2 (ArgoCD, Helm) | Prometheus (24 saat, disk yok), Alertmanager, Grafana, kube-state-metrics. node-exporter kapalı | Planlandı |
 | `hive-monitoring` (ArgoCD, bu klasör) | `PodMonitor` (HIVE `:9090/metrics`), 12 alarm kuralı, Grafana dashboard'u | Planlandı |
-| Uygulama metrikleri | RED + iş metrikleri (stok, eksi stok, yazma trafiği, rapor yaşı) | Ayrı PR (Observability: JSON logs + RED metrics); o merge edilmeden alarmlar "no data" |
+| Uygulama metrikleri | RED + iş metrikleri (stok, eksi stok, yazma trafiği, rapor yaşı) | Kod main'de (#8); yeni imaj ECR'a push edilip `newTag` güncellenince dolar, o zamana kadar bu alarmlar "no data" |
 
 **Dokunmadığı:** HIVE pod'ları, Ingress, veritabanı. Yığın `monitoring` namespace'inde; HIVE'dan sadece metrik okur.
 
@@ -28,16 +28,12 @@
 Bildirim kanalı (Slack/e-posta) henüz yok: alarmlar Alertmanager ve Grafana'da görünür. Sonraki adım:
 Alertmanager'a bir Slack webhook'u (secret olarak).
 
-## Kurulum (tek sefer)
+## Kurulum
 
-Önkoşul: cluster erişimi (`aws eks update-kubeconfig --name hive --region eu-central-1`), bu PR main'de.
-
-```bash
-kubectl apply -f deploy/observability/applications.yaml
-```
-
-Beklenen: `application.argoproj.io/kube-prometheus-stack created`, `application.argoproj.io/hive-monitoring created`.
-İlk senkron 2–4 dk; cluster-autoscaler gerekirse bir node ekler.
+Elle bir şey çalıştırılmaz (app-of-apps). `deploy/k8s/kustomization.yaml` bu klasörü (`../observability`)
+dahil ediyor; main'e girdiğinde mevcut **`hive`** ArgoCD uygulaması iki alt Application'ı
+(`kube-prometheus-stack`, `hive-monitoring`) `argocd` namespace'inde oluşturur, onlar da yığını kurar.
+İlk senkron 3–5 dk; cluster-autoscaler gerekirse bir node ekler.
 
 ## Doğrulama (salt okunur)
 
@@ -63,8 +59,5 @@ kubectl -n monitoring get secret kps-grafana \
 
 ## Geri alma
 
-```bash
-kubectl -n argocd delete applications.argoproj.io hive-monitoring kube-prometheus-stack
-```
-
-ArgoCD kaynakları siler (`prune`). HIVE'ı etkilemez. Operator CRD'leri cluster'da kalır; zararsız.
+`deploy/k8s/kustomization.yaml`'dan `- ../observability` satırını kaldıran bir commit. `hive` uygulaması iki
+alt Application'ı, onlar da kendi kaynaklarını siler (`prune`). HIVE'ı etkilemez. Operator CRD'leri cluster'da kalır; zararsız.
