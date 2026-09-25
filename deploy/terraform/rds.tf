@@ -58,8 +58,17 @@ module "rds" {
   create_db_subnet_group = false
   publicly_accessible    = false
 
-  # hackathon ayarlari - prod'da multi_az=true, deletion_protection=true
-  multi_az                = false
+  # HA: AWS baska bir AZ'de senkron standby tutar, arizada otomatik failover
+  # yapar. Acilmasi online bir islem - kesinti yok. Instance ucreti ~2 katina
+  # cikiyor (db.t4g.micro icin ~13 -> 26 USD/ay).
+  multi_az = true
+
+  # Modulun varsayilani false. O haliyle multi_az gibi degisiklikler bakim
+  # penceresine (tue 23:11 UTC) kuyruklaniyor ve terraform apply exit 0
+  # verdigi icin uygulanmis gibi gorunuyor - sessizce kaciyor.
+  apply_immediately = true
+
+  # hackathon ayari - prod'da deletion_protection=true olmali
   backup_retention_period = 1
   skip_final_snapshot     = true
   deletion_protection     = false
