@@ -209,3 +209,9 @@ variable "acm_certificate_arn" {
   type        = string
   default     = ""
 }
+
+variable "enable_bastion" {
+  description = "RDS'e SSM port-forward icin bastion (t4g.nano, ~3 USD/ay). Kullanilmadiginda false."
+  type        = bool
+  default     = true
+}
