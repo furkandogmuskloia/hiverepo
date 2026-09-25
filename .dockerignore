@@ -1,0 +1,6 @@
+.git
+hive
+hive.old
+hive_backup_*
+*.pem
+*.env*

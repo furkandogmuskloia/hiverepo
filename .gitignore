@@ -1,1 +1,4 @@
 /hive
+*.pem
+*.env
+.env.bak
