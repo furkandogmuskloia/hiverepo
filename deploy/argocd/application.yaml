@@ -1,0 +1,36 @@
+# Tek seferlik bootstrap: kubectl apply -f deploy/argocd/application.yaml
+# Sonrasında deploy/k8s'teki her değişiklik (imaj tag'i dahil) ArgoCD ile uygulanır.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hive
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/furkandogmuskloia/hiverepo.git
+    targetRevision: main
+    path: deploy/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hive
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  # Replica sayısını HPA yönetir; ArgoCD geri çekmesin.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: hive
+      jsonPointers:
+        - /spec/replicas

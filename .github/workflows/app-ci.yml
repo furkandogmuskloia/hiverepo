@@ -155,3 +155,25 @@ jobs:
           push: true
           tags: ${{ steps.refs.outputs.tags }}
           cache-from: type=gha
+
+  promote:
+    name: GitOps promote (deploy/k8s image tag)
+    needs: image
+    if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != '' && vars.ECR_REPOSITORY != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Imaj tag'ini commit SHA'ya çek
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=deploy/k8s/kustomization.yaml
+          sed -i -E "s|^(    newTag: ).*|\1${GITHUB_SHA}|" "$file"
+          if git diff --quiet "$file"; then echo "değişiklik yok"; exit 0; fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "deploy: hive ${GITHUB_SHA::7}"
+          # GITHUB_TOKEN commit'i yeni workflow tetiklemez; ArgoCD değişikliği çeker.
+          git push

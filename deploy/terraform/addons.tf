@@ -56,5 +56,16 @@ module "eks_blueprints_addons" {
   # POD bazinda olceklenme icin sart: HPA CPU metrigini buradan okur
   enable_metrics_server = true
 
+  # GitOps: deploy/k8s repodan senkronlanir (deploy/argocd/application.yaml).
+  # UI'a port-forward ile erisilir; disari acilmaz.
+  enable_argocd = true
+  argocd = {
+    values = [yamlencode({
+      configs = {
+        params = { "server.insecure" = true }
+      }
+    })]
+  }
+
   tags = local.tags
 }
