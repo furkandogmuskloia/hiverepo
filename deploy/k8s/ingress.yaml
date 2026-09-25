@@ -16,11 +16,11 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTP": 8080}]'
 
     alb.ingress.kubernetes.io/healthcheck-path: /health
-    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "5"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
 
-    # pod kapanirken ALB hedefi hizli dussun (preStop 5sn ile uyumlu)
+    # pod kapanirken ALB hedefi hizli dussun (preStop 20sn > 15sn deregistration)
     alb.ingress.kubernetes.io/target-group-attributes: >-
       deregistration_delay.timeout_seconds=15,
       load_balancing.algorithm.type=least_outstanding_requests
