@@ -1,21 +1,29 @@
 package main
 
 import (
+	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "github.com/lib/pq"
 )
 
 var db *sql.DB
+
+// pg_advisory_lock anahtari - sema kurulumunu replica'lar arasinda serilestirir
+const bootstrapLockID = 727272
 
 type Product struct {
 	ID        int       `json:"id"`
@@ -72,21 +80,103 @@ func getProducts(order string) ([]Product, error) {
 	return products, nil
 }
 
+// bootstrap semayi kurar ve tablo bossa ornek veriyi yazar.
+// Birden fazla replica ayni anda acildigi icin advisory lock sart: lock olmadan
+// her pod "count == 0" gorup seed'i tekrar yaziyor ve urunler cogalliyor.
+// Lock connection-scoped oldugundan havuzdan tek bir baglanti alinip uzerinde kalinir.
+func bootstrap() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if _, err = conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", bootstrapLockID); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", bootstrapLockID)
+
+	_, err = conn.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS products (id SERIAL PRIMARY KEY, name TEXT, warehouse TEXT, quantity INTEGER, updated_at TIMESTAMP DEFAULT NOW());
+		CREATE TABLE IF NOT EXISTS movements (id SERIAL PRIMARY KEY, product_id INTEGER REFERENCES products(id), delta INTEGER, note TEXT, created_at TIMESTAMP DEFAULT NOW());
+		CREATE TABLE IF NOT EXISTS daily_reports (id SERIAL PRIMARY KEY, generated_at TIMESTAMP DEFAULT NOW(), total_products INTEGER, total_quantity INTEGER);
+	`)
+	if err != nil {
+		return err
+	}
+
+	var count int
+	if err = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM products").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		log.Printf("schema ready, %d products already present", count)
+		return nil
+	}
+
+	log.Println("products table empty, inserting sample data")
+	seed := []struct {
+		name, wh string
+		qty      int
+	}{
+		{"Paracetamol 500mg", "Dublin-A", 1200}, {"Ibuprofen 400mg", "Dublin-A", 850},
+		{"Amoxicillin 250mg", "Dublin-B", 430}, {"Insulin Glargine 100IU", "Frankfurt-1", 75},
+		{"Morphine Sulfate 10mg", "Frankfurt-1", 40}, {"Sodium Chloride 0.9%", "London-C", 3000},
+		{"Ethanol 96%", "London-C", 500}, {"Hydrogen Peroxide 3%", "Dublin-B", 620},
+		{"Adrenaline 1mg/ml", "Frankfurt-1", 90}, {"Diazepam 5mg", "Dublin-A", 310},
+		{"Formaldehyde 37%", "London-C", 120}, {"Ceftriaxone 1g", "Dublin-B", 260},
+		{"Omeprazole 20mg", "Dublin-A", 980}, {"Chlorhexidine 2%", "London-C", 440},
+		{"Heparin 5000IU", "Frankfurt-1", 150}, {"Lidocaine 2%", "Dublin-B", 380},
+		{"Acetone", "London-C", 700}, {"T-Compound (sample)", "Frankfurt-1", 3},
+	}
+	for _, s := range seed {
+		if _, err = conn.ExecContext(ctx,
+			"INSERT INTO products (name, warehouse, quantity, updated_at) VALUES ($1, $2, $3, NOW())",
+			s.name, s.wh, s.qty); err != nil {
+			return err
+		}
+	}
+	log.Printf("seeded %d products", len(seed))
+	return nil
+}
+
+// authorized, HIVE_API_TOKEN set edilmisse yazma isteklerinde bearer token arar.
+// Token bos birakilirsa (lokal gelistirme) kontrol devre disi kalir.
+func authorized(r *http.Request) bool {
+	want := os.Getenv("HIVE_API_TOKEN")
+	if want == "" {
+		return true
+	}
+	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
 func main() {
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "hive")
 	dbPass := getEnv("DB_PASSWORD", "umbrella2019")
 	dbName := getEnv("DB_NAME", "hive")
+	dbSSL := getEnv("DB_SSLMODE", "require")
 	port := getEnv("PORT", "8080")
 
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", dbHost, dbPort, dbUser, dbPass, dbName)
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", dbHost, dbPort, dbUser, dbPass, dbName, dbSSL)
 	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// TODO: connection pool ayarla - 2021
+
+	// Pod basina havuz tavani. RDS max_connections'i asmamak icin sart:
+	// HPA max 10 pod x 5 baglanti = 50, db.t4g.micro limitinin (~112) altinda.
+	maxOpen, _ := strconv.Atoi(getEnv("DB_MAX_OPEN_CONNS", "5"))
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxOpen)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
 
 	// db bazen gec aciliyor, biraz bekle
 	for i := 0; i < 5; i++ {
@@ -101,44 +191,17 @@ func main() {
 	}
 	log.Println("connected to db at", dbHost)
 
-	// reports tablosu - v2'de uygulama kendisi rapor uretecek
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS products (id SERIAL PRIMARY KEY, name TEXT, warehouse TEXT, quantity INTEGER, updated_at TIMESTAMP DEFAULT NOW());
-		CREATE TABLE IF NOT EXISTS movements (id SERIAL PRIMARY KEY, product_id INTEGER REFERENCES products(id), delta INTEGER, note TEXT, created_at TIMESTAMP DEFAULT NOW());
-		CREATE TABLE IF NOT EXISTS daily_reports (id SERIAL PRIMARY KEY, generated_at TIMESTAMP DEFAULT NOW(), total_products INTEGER, total_quantity INTEGER);
-	`)
-	if err != nil {
-		log.Fatal(err)
+	if err = bootstrap(); err != nil {
+		log.Fatal("bootstrap failed: ", err)
 	}
 
-	var count int
-	if err = db.QueryRow("SELECT COUNT(*) FROM products").Scan(&count); err != nil {
-		log.Fatal(err)
-	}
-	if count == 0 {
-		log.Println("products table empty, inserting sample data")
-		seed := []struct {
-			name, wh string
-			qty      int
-		}{
-			{"Paracetamol 500mg", "Dublin-A", 1200}, {"Ibuprofen 400mg", "Dublin-A", 850},
-			{"Amoxicillin 250mg", "Dublin-B", 430}, {"Insulin Glargine 100IU", "Frankfurt-1", 75},
-			{"Morphine Sulfate 10mg", "Frankfurt-1", 40}, {"Sodium Chloride 0.9%", "London-C", 3000},
-			{"Ethanol 96%", "London-C", 500}, {"Hydrogen Peroxide 3%", "Dublin-B", 620},
-			{"Adrenaline 1mg/ml", "Frankfurt-1", 90}, {"Diazepam 5mg", "Dublin-A", 310},
-			{"Formaldehyde 37%", "London-C", 120}, {"Ceftriaxone 1g", "Dublin-B", 260},
-			{"Omeprazole 20mg", "Dublin-A", 980}, {"Chlorhexidine 2%", "London-C", 440},
-			{"Heparin 5000IU", "Frankfurt-1", 150}, {"Lidocaine 2%", "Dublin-B", 380},
-			{"Acetone", "London-C", 700}, {"T-Compound (sample)", "Frankfurt-1", 3},
-		}
-		for _, s := range seed {
-			_, err = db.Exec("INSERT INTO products (name, warehouse, quantity, updated_at) VALUES ($1, $2, $3, NOW())", s.name, s.wh, s.qty)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-	}
+	// liveness: sadece surecin ayakta oldugunu soyler. DB'ye bakmaz - yoksa
+	// gecici bir RDS kesintisi tum podlari kubelet'e oldurtur.
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]string{"status": "alive"})
+	})
 
+	// readiness: DB'ye bakar. Basarisiz olursa pod sadece Service'ten dusurulur.
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.Ping(); err != nil {
 			log.Println("health check failed:", err)
@@ -150,10 +213,17 @@ func main() {
 
 	http.HandleFunc("/api/stock", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
+			if !authorized(r) {
+				log.Printf("unauthorized POST from %s", r.RemoteAddr)
+				writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+				return
+			}
+			// ALB internet'e acik - govdeyi sinirla, sinirsiz okuma bellek tuketir
+			r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 			var m Movement
 			err := json.NewDecoder(r.Body).Decode(&m)
 			if err != nil {
-				http.Error(w, err.Error(), 400)
+				http.Error(w, "invalid body", 400)
 				return
 			}
 			tx, err := db.Begin()
@@ -273,8 +343,37 @@ func main() {
 		tmpl.Execute(w, products)
 	})
 
+	srv := &http.Server{
+		Addr:              ":" + port,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 16,
+	}
+
+	// Rolling update sirasinda ucan istek dusmesin: SIGTERM gelince yeni
+	// baglanti almayi birak, acik olanlari 20sn icinde bitir.
+	idle := make(chan struct{})
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+		<-sig
+		log.Println("shutdown signal received, draining connections")
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Println("graceful shutdown failed:", err)
+		}
+		close(idle)
+	}()
+
 	log.Println("HIVE listening on :" + port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+	<-idle
+	log.Println("stopped")
 }
 
 // TODO: bunu ayri dosyaya tasi

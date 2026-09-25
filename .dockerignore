@@ -1,0 +1,16 @@
+# KRITIK: ozel anahtar asla imaja girmesin
+*.pem
+*.key
+id_rsa*
+
+# derlenmis binary (12MB) - imajda yeniden derleniyor
+hive
+
+.git
+.gitignore
+deploy/
+scripts/
+*.md
+.DS_Store
+hive.service
+schema.sql

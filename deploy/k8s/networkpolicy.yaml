@@ -1,0 +1,51 @@
+# VPC CNI network policy ile uygulanir (vpc-cni addon'unda
+# enableNetworkPolicy=true set edildi).
+#
+# Amac: hive pod'u ele gecirilirse oradan baska bir yere gidilemesin.
+# Izin verilen tek giden trafik: DNS + RDS 5432. Internete cikis kapali.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hive
+  namespace: hive
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hive
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # ALB target-type=ip ile pod IP'sine dogrudan gelir; kaynak ALB ENI'si
+    # oldugu icin VPC icinden 8080'e izin veriliyor.
+    - from:
+        - ipBlock:
+            cidr: __VPC_CIDR__
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  egress:
+    # CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # RDS Postgres - sadece VPC icine, sadece 5432
+    - to:
+        - ipBlock:
+            cidr: __VPC_CIDR__
+      ports:
+        - protocol: TCP
+          port: 5432

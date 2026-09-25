@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hive
+  labels:
+    app.kubernetes.io/name: hive
+    # Pod Security Admission - restricted profil zorunlu.
+    # Deployment'taki securityContext bu profile uyacak sekilde yazildi;
+    # ihlal eden bir pod namespace'e hic kabul edilmez.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

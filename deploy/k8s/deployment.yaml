@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hive
+  namespace: hive
+  labels:
+    app.kubernetes.io/name: hive
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # eski pod inmeden yenisi ayaga kalkar -> deploy sirasinda kapasite dusmez
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hive
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hive
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+
+      # SPOT geri alim bildirimi 2 dk. Pod'un temiz kapanmasi icin 40sn yeterli:
+      # 5sn preStop (ALB deregistration) + 20sn drain + pay.
+      terminationGracePeriodSeconds: 40
+
+      topologySpreadConstraints:
+        # replica'lar AZ'lere dagilsin - tek AZ olayinda servis durmasin
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: hive
+        # replica'lar spot ve ondemand'a dagilsin - spot havuzu komple
+        # geri alinsa bile ondemand'daki replica ayakta kalir
+        - maxSkew: 1
+          topologyKey: capacity
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: hive
+
+      containers:
+        - name: hive
+          image: __HIVE_IMAGE__
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DB_SSLMODE
+              value: "require"
+            # pod basina havuz tavani. 10 pod x 5 = 50 baglanti,
+            # db.t4g.micro limitinin (~112) altinda.
+            - name: DB_MAX_OPEN_CONNS
+              value: "5"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef: { name: hive-db, key: DB_HOST }
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef: { name: hive-db, key: DB_PORT }
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef: { name: hive-db, key: DB_NAME }
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: hive-db, key: DB_USER }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: hive-db, key: DB_PASSWORD }
+            - name: HIVE_API_TOKEN
+              valueFrom:
+                secretKeyRef: { name: hive-db, key: HIVE_API_TOKEN }
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              # CPU limiti kasitli olarak yok: throttling yerine HPA olceklesin.
+              memory: 128Mi
+
+          # acilista DB seed/migration surebilir - 60sn'ye kadar tolere et
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+
+          # sadece surec kontrolu - DB'ye bakmaz, yoksa RDS blip'i
+          # butun podlari oldurur
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+
+          # DB kontrolu burada - basarisizsa pod sadece Service'ten dusurulur
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          lifecycle:
+            preStop:
+              # ALB target group'tan dusurulmesini bekle, sonra kapan.
+              # distroless'ta shell yok - exec yerine sleep action (k8s >=1.32).
+              sleep:
+                seconds: 5
