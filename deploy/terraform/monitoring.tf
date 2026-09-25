@@ -26,6 +26,11 @@ data "aws_lb_target_group" "hive" {
 
 resource "aws_sns_topic" "alerts" {
   name = "${local.name}-alerts"
+
+  # Alarm bildirimleri kaynak adlari, metrik esikleri ve zamanlama iceriyor -
+  # bir saldirgan icin degerli kesif bilgisi. AWS yonetimli anahtar yeterli
+  # ve ucretsiz; CMK'ya gecmek istenirse tek satir degisiyor.
+  kms_master_key_id = "alias/aws/sns"
 }
 
 resource "aws_sns_topic_subscription" "email" {
