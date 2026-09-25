@@ -7,6 +7,9 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     # ip modu: ALB dogrudan pod IP'sine gider, node port atlamasi yok
     alb.ingress.kubernetes.io/target-type: ip
+    # Puanlama botu ve mevcut istemciler chem.kloia.me:8080'e gidiyor (eski sunucunun portu).
+    # DNS ALB'ye cevrildiginde ayni port calismali; 80 de acik kalir.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTP": 8080}]'
 
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
