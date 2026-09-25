@@ -73,13 +73,14 @@ module "rds" {
   backup_retention_period  = 7
   backup_window            = "01:00-02:00"
   copy_tags_to_snapshot    = true
-  delete_automated_backups = false
+  delete_automated_backups = true
 
-  # Instance silinirse once son bir snapshot alinir; yanlislikla silme engellenir.
-  # Kapatmak (teardown) icin once deletion_protection=false yapan ayri bir PR gerekir.
-  skip_final_snapshot              = false
+  # TEARDOWN (2026-09-25, etkinlik sonu): koruma kapatildi, final snapshot alinmayacak
+  # (karar: ekip). Son dogrulanmis dump 16:42 UTC'de alindi (docs/teardown.md).
+  # Ortam yeniden kurulacaksa bu blok eski haline (true / false / true) dondurulmeli.
+  skip_final_snapshot              = true
   final_snapshot_identifier_prefix = "${local.name}-pg-final"
-  deletion_protection              = true
+  deletion_protection              = false
 
   create_monitoring_role       = false
   performance_insights_enabled = false
