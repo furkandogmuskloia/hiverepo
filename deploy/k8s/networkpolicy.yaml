@@ -22,7 +22,7 @@ spec:
     # oldugu icin VPC icinden 8080'e izin veriliyor.
     - from:
         - ipBlock:
-            cidr: __VPC_CIDR__
+            cidr: 10.20.0.0/16 # VPC CIDR (deploy/terraform var.vpc_cidr)
       ports:
         - protocol: TCP
           port: 8080
@@ -45,7 +45,7 @@ spec:
     # RDS Postgres - sadece VPC icine, sadece 5432
     - to:
         - ipBlock:
-            cidr: __VPC_CIDR__
+            cidr: 10.20.0.0/16 # VPC CIDR (deploy/terraform var.vpc_cidr)
       ports:
         - protocol: TCP
           port: 5432

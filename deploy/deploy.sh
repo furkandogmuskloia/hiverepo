@@ -95,14 +95,15 @@ echo "  secret/hive-db hazir"
 
 # --- 4. manifest'leri render et + uygula ---------------------------------
 say "Manifest'ler uygulaniyor"
+# deploy/k8s bir kustomize dizini (ArgoCD de ayni dizini izler).
+# Imaj bu calistirmada push edilen tag'e cekilir; repo dosyasi degismez.
 cp "$K8S_DIR"/*.yaml "$RENDER_DIR/"
-# BSD sed (macOS) ve GNU sed arasinda -i farki var; dosyayi yeniden yaziyoruz
-for f in "$RENDER_DIR"/*.yaml; do
-  sed -e "s|__HIVE_IMAGE__|$IMAGE|g" -e "s|__VPC_CIDR__|$VPC_CIDR|g" "$f" > "$f.tmp"
-  mv "$f.tmp" "$f"
-done
+sed -e "s|^\(    newName: \).*|\1${IMAGE%:*}|" -e "s|^\(    newTag: \).*|\1${TAG}|" \
+  "$K8S_DIR/kustomization.yaml" > "$RENDER_DIR/kustomization.yaml"
+grep -q "cidr: ${VPC_CIDR} " "$RENDER_DIR/networkpolicy.yaml" \
+  || die "networkpolicy.yaml VPC CIDR'i ($VPC_CIDR) ile uyusmuyor"
 
-kubectl apply -f "$RENDER_DIR/"
+kubectl apply -k "$RENDER_DIR/"
 
 # --- 5. bekle ------------------------------------------------------------
 say "Rollout bekleniyor"

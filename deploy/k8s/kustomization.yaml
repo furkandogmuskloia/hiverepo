@@ -1,0 +1,16 @@
+# ArgoCD bu klasörü izler (deploy/argocd/application.yaml).
+# Imaj tag'ini app-ci main'de commit SHA'ya çeker; deploy.sh de aynı alanı kullanır.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - networkpolicy.yaml
+images:
+  - name: hive
+    newName: 417732881703.dkr.ecr.eu-central-1.amazonaws.com/hive
+    newTag: latest
