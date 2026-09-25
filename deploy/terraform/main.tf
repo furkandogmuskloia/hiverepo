@@ -109,7 +109,7 @@ module "eks" {
   # Cluster'i kuran (halil.bozan) zaten admin - bkz.
   # enable_cluster_creator_admin_permissions. Ekip uyeleri buradan eklenir.
   # EKS API authentication mode kullaniliyor, aws-auth ConfigMap'e gerek yok.
-  access_entries = {
+  access_entries = merge({
     for name in var.eks_admin_users : replace(name, ".", "-") => {
       principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/${name}"
       type          = "STANDARD"
@@ -121,7 +121,28 @@ module "eks" {
         }
       }
     }
-  }
+    }, {
+    # GitHub Actions (github-actions.tf): plan salt-okunur gorur (helm release
+    # secret'lari dahil), apply cluster-admin.
+    gha-plan = {
+      principal_arn = aws_iam_role.gha["hive-gha-plan"].arn
+      policy_associations = {
+        view = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSAdminViewPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+    gha-apply = {
+      principal_arn = aws_iam_role.gha["hive-gha-apply"].arn
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  })
 
   # most_recent: EKS'in o surum icin "varsayilan" addon'unu degil, uyumlu
   # en guncel addon surumunu kurar.
