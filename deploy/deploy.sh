@@ -27,16 +27,22 @@ die() { printf '\n\033[1;31mHATA: %s\033[0m\n' "$*" >&2; exit 1; }
 tf() { terraform -chdir="$TF_DIR" output -raw "$1" 2>/dev/null; }
 
 # --- 0. terraform ciktilarini oku ----------------------------------------
+# Her deger ortam degiskeniyle verilebilir; verilmezse terraform output'tan okunur.
+# State'in olmadigi bir makineden deploy icin: REGION, CLUSTER, ECR_URL, DB_HOST,
+# DB_PORT, DB_NAME, DB_USER, SECRET_ARN, VPC_CIDR export edilir.
 say "Terraform ciktilari okunuyor"
-REGION="$(tf region)"          || die "terraform output okunamadi - once 'terraform apply' calistir"
-CLUSTER="$(tf cluster_name)"   || die "cluster_name bulunamadi"
-ECR_URL="$(tf ecr_repository_url)"
-DB_HOST="$(tf db_host)"
-DB_PORT="$(tf db_port)"
-DB_NAME="$(tf db_name)"
-DB_USER="$(tf db_username)"
-SECRET_ARN="$(tf db_master_user_secret_arn)"
-VPC_CIDR="$(tf vpc_cidr_block)"
+REGION="${REGION:-$(tf region)}"        || die "terraform output okunamadi - once 'terraform apply' calistir"
+CLUSTER="${CLUSTER:-$(tf cluster_name)}" || die "cluster_name bulunamadi"
+ECR_URL="${ECR_URL:-$(tf ecr_repository_url)}"
+DB_HOST="${DB_HOST:-$(tf db_host)}"
+DB_PORT="${DB_PORT:-$(tf db_port)}"
+DB_NAME="${DB_NAME:-$(tf db_name)}"
+DB_USER="${DB_USER:-$(tf db_username)}"
+SECRET_ARN="${SECRET_ARN:-$(tf db_master_user_secret_arn)}"
+VPC_CIDR="${VPC_CIDR:-$(tf vpc_cidr_block)}"
+for v in REGION CLUSTER ECR_URL DB_HOST DB_PORT DB_NAME DB_USER SECRET_ARN VPC_CIDR; do
+  [ -n "${!v}" ] || die "$v bos - terraform output yok ve ortam degiskeni verilmedi"
+done
 
 [ -n "$CLUSTER" ] || die "cluster adi bos"
 echo "  cluster : $CLUSTER ($REGION)"
