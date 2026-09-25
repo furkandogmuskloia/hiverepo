@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -177,6 +178,8 @@ func authorized(r *http.Request) bool {
 }
 
 func main() {
+	initLogging()
+
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "hive")
@@ -221,6 +224,8 @@ func main() {
 		time.Sleep(3 * time.Second)
 	}
 	log.Println("connected to db at", dbHost)
+
+	startMetricsServer(getEnv("METRICS_PORT", "9090"))
 
 	if err = bootstrap(); err != nil {
 		log.Fatal("bootstrap failed: ", err)
@@ -286,7 +291,9 @@ func main() {
 				serverError(w, err)
 				return
 			}
-			log.Printf("movement %d: product=%d delta=%d note=%s\n", m.ID, m.ProductID, m.Delta, m.Note)
+			stockMovements.WithLabelValues("ok").Inc()
+			slog.Info("stock movement", "trace_id", traceID(r), "movement_id", m.ID,
+				"product_id", m.ProductID, "delta", m.Delta, "note", m.Note)
 			writeJSON(w, 201, m)
 			return
 		}
@@ -376,6 +383,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
+		Handler:           instrument(http.DefaultServeMux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
