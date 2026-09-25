@@ -1,0 +1,20 @@
+[Unit]
+Description=HIVE stock service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=hive
+WorkingDirectory=/opt/hive
+ExecStart=/opt/hive/hive
+Environment=DB_HOST=localhost
+Environment=DB_PORT=5432
+Environment=DB_USER=hive
+Environment=DB_PASSWORD=umbrella2019
+Environment=DB_NAME=hive
+Environment=PORT=8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
