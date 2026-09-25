@@ -1,11 +1,11 @@
 name: infra-ci
 
-# Altyapı (deploy/terraform) için shift-left kontroller: her PR'da fmt, validate,
-# tflint ve trivy misconfig. Kimlik bilgisi gerektirmez.
-#
-# plan/apply bu hatta henüz YOK: deploy/terraform'da remote backend tanımlı değil
-# (state lokalde). Brief'e göre apply sadece Actions'tan yapılmalı; S3 backend +
-# TF_ROLE_ARN eklendiğinde plan (PR) ve apply (main, production onayı) job'ları eklenecek.
+# Altyapi hatti (deploy/terraform). Brief kurali: apply SADECE buradan.
+#   PR   : fmt, validate, tflint, trivy + plan (PR'a yorum olarak)
+#   main : ayni kontroller + plan + apply; apply "production" environment
+#          onayindan (required reviewer) sonra, ayni job'da uretilen plan dosyasiyla.
+# Roller OIDC ile: TF_PLAN_ROLE_ARN (salt okunur), TF_APPLY_ROLE_ARN (production).
+# Degiskenler tanimli degilse plan/apply job'lari atlanir, statik kontroller calisir.
 
 on:
   pull_request:
@@ -17,6 +17,11 @@ on:
 
 permissions:
   contents: read
+
+# Ayni state uzerinde iki plan/apply cakismasin; kuyruga girer, iptal edilmez.
+concurrency:
+  group: terraform-hive
+  cancel-in-progress: false
 
 env:
   TF_DIR: deploy/terraform
@@ -52,3 +57,82 @@ jobs:
           scan-ref: ${{ env.TF_DIR }}
           severity: CRITICAL,HIGH
           exit-code: "1"
+
+  plan:
+    name: plan
+    needs: static
+    if: vars.TF_PLAN_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: eu-central-1
+      - name: terraform plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform init -input=false
+          terraform plan -input=false -no-color -detailed-exitcode 2>&1 | tee plan.txt
+        continue-on-error: true # exit 2 = degisiklik var; asagida degerlendirilir
+      - name: Plan sonucu
+        shell: bash
+        run: |
+          case "${{ steps.plan.outcome }}" in
+            success) echo "::notice::No changes" ;;
+            *) grep -q "Plan:" "$TF_DIR/plan.txt" || { echo "::error::terraform plan basarisiz"; exit 1; } ;;
+          esac
+          grep -E "^Plan:|will be destroyed|must be replaced" "$TF_DIR/plan.txt" || true
+      - name: Plan'i PR'a yaz
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync(`${process.env.TF_DIR}/plan.txt`, 'utf8');
+            const destroy = /will be destroyed|must be replaced/.test(plan) ? '\n> ⚠️ **destroy / replace var — dikkatle incele**\n' : '';
+            const body = `### terraform plan (deploy/terraform)${destroy}\n\`\`\`\n${plan.slice(-60000)}\n\`\`\``;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  apply:
+    name: apply (production)
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.TF_APPLY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    environment: production # Settings -> Environments -> production -> required reviewers
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_APPLY_ROLE_ARN }}
+          aws-region: eu-central-1
+          role-duration-seconds: 3600
+      # Onaydan sonra plan yeniden alinir ve TAM O plan uygulanir; arada state
+      # degistiyse fark burada gorunur (loglarda).
+      - name: terraform plan + apply
+        working-directory: ${{ env.TF_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform init -input=false
+          terraform plan -input=false -no-color -out=tfplan
+          terraform apply -input=false -no-color tfplan
