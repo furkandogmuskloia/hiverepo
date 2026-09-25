@@ -9,7 +9,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY main.go ./
+COPY *.go ./
 
 ARG TARGETARCH=arm64
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \

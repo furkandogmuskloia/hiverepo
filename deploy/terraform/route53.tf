@@ -2,7 +2,7 @@
 # chem.kloia.me - cutover kaydi
 #
 # Onemli: kloia.me Cloudflare'da, ama chem alt alani NS ile Route53'e
-# DEVREDILMIS (zone Z07389103CL53BOHXGNNK). Yani kayit Cloudflare'dan degil
+# DEVREDILMIS. Yani kayit Cloudflare'dan degil
 # buradan yonetiliyor.
 #
 # chem.kloia.me kendi zone'unun APEX'i oldugu icin CNAME yazilamaz;
@@ -16,7 +16,7 @@
 data "aws_route53_zone" "chem" {
   count = var.manage_dns ? 1 : 0
 
-  name         = "chem.kloia.me."
+  name         = var.dns_zone_name
   private_zone = false
 }
 
@@ -37,12 +37,12 @@ data "aws_lb" "hive" {
 resource "aws_route53_record" "chem" {
   # Varsayilan KAPALI. Acmadan once mevcut kayit import edilmeli:
   #   terraform import aws_route53_record.chem[0] \
-  #     Z07389103CL53BOHXGNNK_chem.kloia.me_A
+  #     <zone-id>_<record-name>_A
   # Import edilmeden apply edilirse canli kayit uzerine yazilir.
   count = var.manage_dns ? 1 : 0
 
   zone_id         = data.aws_route53_zone.chem[0].zone_id
-  name            = "chem.kloia.me"
+  name            = var.dns_record_name
   type            = "A"
   allow_overwrite = true
 

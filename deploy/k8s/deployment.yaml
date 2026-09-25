@@ -21,6 +21,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: hive
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
     spec:
       securityContext:
         runAsNonRoot: true
@@ -29,9 +33,9 @@ spec:
         seccompProfile:
           type: RuntimeDefault
 
-      # SPOT geri alim bildirimi 2 dk. Pod'un temiz kapanmasi icin 40sn yeterli:
-      # 5sn preStop (ALB deregistration) + 20sn drain + pay.
-      terminationGracePeriodSeconds: 40
+      # SPOT geri alim bildirimi 2 dk. Kapanis: 20sn preStop (ALB hedeften
+      # cikarir, deregistration_delay=15sn'den uzun) + 20sn drain + 10sn pay.
+      terminationGracePeriodSeconds: 50
 
       topologySpreadConstraints:
         # replica'lar AZ'lere dagilsin - tek AZ olayinda servis durmasin
@@ -58,6 +62,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # /metrics (Prometheus). Service/ALB'ye eklenmez, internete acilmaz.
+            - name: metrics
+              containerPort: 9090
 
           env:
             - name: PORT
@@ -128,4 +135,4 @@ spec:
               # ALB target group'tan dusurulmesini bekle, sonra kapan.
               # distroless'ta shell yok - exec yerine sleep action (k8s >=1.32).
               sleep:
-                seconds: 5
+                seconds: 20
