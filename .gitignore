@@ -1,1 +1,32 @@
-/hive
+# --- SIRLAR - asla commit edilmez ---------------------------------------
+*.pem
+*.key
+id_rsa*
+.env
+.env.*
+!.env.example
+
+# --- Terraform -----------------------------------------------------------
+# state ve plan dosyalari RDS sifresi / secret ARN iceriyor
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform/
+.terraform.tfstate.lock.info
+*.auto.tfvars
+terraform.tfvars
+# .terraform.lock.hcl KASITLI olarak commit edilir - provider surumlerini sabitler
+
+# --- Derlenmis ciktilar --------------------------------------------------
+hive
+hive.old
+hive_backup_*
+*.exe
+
+# --- Veritabani dokumleri ------------------------------------------------
+*.sql.gz
+*.dump
+
+# --- Isletim sistemi -----------------------------------------------------
+.DS_Store

@@ -1,0 +1,37 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hive
+  namespace: hive
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # ip modu: ALB dogrudan pod IP'sine gider, node port atlamasi yok
+    alb.ingress.kubernetes.io/target-type: ip
+
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+
+    # pod kapanirken ALB hedefi hizli dussun (preStop 5sn ile uyumlu)
+    alb.ingress.kubernetes.io/target-group-attributes: >-
+      deregistration_delay.timeout_seconds=15,
+      load_balancing.algorithm.type=least_outstanding_requests
+
+    alb.ingress.kubernetes.io/load-balancer-attributes: >-
+      idle_timeout.timeout_seconds=60,
+      routing.http.drop_invalid_header_fields.enabled=true
+
+    alb.ingress.kubernetes.io/tags: Project=hive,ManagedBy=kubectl
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hive
+                port:
+                  number: 80

@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hive
+  namespace: hive
+spec:
+  # SPOT geri alimi / node drain sirasinda en az 1 pod hep ayakta kalir.
+  # Cluster Autoscaler scale-down yaparken de bu butceye uyar.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hive

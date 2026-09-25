@@ -1,0 +1,39 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hive
+  namespace: hive
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hive
+
+  minReplicas: 2
+  # 10 pod x DB_MAX_OPEN_CONNS(5) = 50 baglanti.
+  # db.t4g.micro ~112 baglantiyi kaldirir, tavan guvenli.
+  maxReplicas: 10
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+  behavior:
+    # yukari hizli cik: yuk gelince beklemeden iki katina kadar
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    # asagi yavas in: flapping olmasin
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
