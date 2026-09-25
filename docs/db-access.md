@@ -9,6 +9,22 @@ SSH yok, public IP yok, açık port yok; her oturum CloudTrail'e yazılır. Bast
 - Session Manager eklentisi: `brew install --cask session-manager-plugin`, sonra `session-manager-plugin --version`.
 - PostgreSQL 16 istemcisi: `pg_dump --version` → `16.x` (sunucu 16; eski bir pg_dump reddeder).
 
+## Bağlanma: `scripts/bastion.sh`
+
+SSH yok: bastion'da anahtar, public IP ve açık port bulunmaz. Bağlantı IAM kimliğinizle SSM Session Manager
+üzerinden kurulur, her oturum CloudTrail'e yazılır.
+
+```bash
+export AWS_PROFILE=<profil>
+./scripts/bastion.sh status   # bastion, SSM kaydı, RDS endpoint (salt okunur)
+./scripts/bastion.sh psql     # tünel + şifre (Secrets Manager'dan, ekrana basılmaz) + psql; çıkınca tünel kapanır
+./scripts/bastion.sh tunnel   # sadece tünel: localhost:5433 -> RDS, Ctrl-C ile kapanır (DBeaver vb. için)
+./scripts/bastion.sh shell    # bastion'da kabuk (psql 16 istemcisi kurulu)
+```
+
+Beklenen (`status`): `bastion : i-... (SSM: Online)`, `database : hive-pg (hive-pg....rds.amazonaws.com)`,
+`plugin : session-manager-plugin 1.x`. Bastion yoksa: `not running ... is enable_bastion applied?`.
+
 ## Tek komut: `scripts/db-dump.sh`
 
 Aşağıdaki 1–3. adımları (port-forward, şifre, sayım, dump, sha256, doğrulama, oturumu kapatma) tek seferde yapar.
