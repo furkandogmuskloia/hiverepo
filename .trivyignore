@@ -1,8 +1,12 @@
 # Bilinçli kabul edilen riskler. Her satır gerekçesiyle; sonraki adım README/sunumda.
 
-# EKS API endpoint public: deploy laptop'tan ve GitHub-hosted runner'lardan yapılıyor,
-# ikisinin de sabit IP'si yok. Sonraki adım: endpoint_public_access_cidrs ile kısıtlama
-# veya self-hosted runner + private endpoint.
+# EKS API endpoint hâlâ public, AMA artık 0.0.0.0/0 değil:
+# endpoint_public_access_cidrs ile ekibin çıkış IP'sine daraltıldı
+# (bkz. deploy/terraform/variables.tf). endpoint_private_access zaten açık,
+# dolayısıyla ArgoCD ve cluster içi erişim bu listeden etkilenmiyor.
+# CI cluster'a bağlanmıyor (yalnızca terraform validate + tflint çalıştırıyor),
+# o yüzden runner IP'lerinin dinamik olması sorun değil.
+# Kalan adım: endpoint'i tamamen private yapıp bastion/VPN üzerinden girmek.
 AWS-0040
 AWS-0041
 
