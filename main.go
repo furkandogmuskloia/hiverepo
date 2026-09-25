@@ -56,13 +56,29 @@ func getEnv(key, def string) string {
 	return v
 }
 
+// hata detayi log'a, istemciye jenerik mesaj: sema/tablo isimleri disari sizmasin
+func serverError(w http.ResponseWriter, err error) {
+	log.Println("request failed:", err)
+	http.Error(w, "internal error", 500)
+}
+
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(v)
 }
 
-func getProducts(order string) ([]Product, error) {
+// ORDER BY parametre alamaz; sadece bu listedeki ifadeler kullanilabilir.
+var productOrders = map[string]string{
+	"id":        "id",
+	"warehouse": "warehouse, name",
+}
+
+func getProducts(key string) ([]Product, error) {
+	order, ok := productOrders[key]
+	if !ok {
+		order = "id"
+	}
 	rows, err := db.Query("SELECT id, name, warehouse, quantity, updated_at FROM products ORDER BY " + order)
 	if err != nil {
 		return nil, err
@@ -116,6 +132,12 @@ func bootstrap() error {
 		log.Printf("schema ready, %d products already present", count)
 		return nil
 	}
+	// Goc sirasinda yeni pod'lar bos RDS'e baglanir; ornek urunleri id 1..18 ile
+	// yazarsa tasinan gercek veriyle cakisir. Seed sadece acikca istenirse.
+	if getEnv("HIVE_SEED_SAMPLE_DATA", "false") != "true" {
+		log.Println("products table empty, sample data disabled (HIVE_SEED_SAMPLE_DATA != true)")
+		return nil
+	}
 
 	log.Println("products table empty, inserting sample data")
 	seed := []struct {
@@ -158,7 +180,10 @@ func main() {
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "hive")
-	dbPass := getEnv("DB_PASSWORD", "umbrella2019")
+	dbPass := os.Getenv("DB_PASSWORD") // varsayilan yok: sifre koda/binary'e gomulmesin
+	if dbPass == "" {
+		log.Fatal("DB_PASSWORD is required")
+	}
 	dbName := getEnv("DB_NAME", "hive")
 	dbSSL := getEnv("DB_SSLMODE", "require")
 	port := getEnv("PORT", "8080")
@@ -178,16 +203,22 @@ func main() {
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(1 * time.Minute)
 
-	// db bazen gec aciliyor, biraz bekle
-	for i := 0; i < 5; i++ {
+	// db gec acilabilir (RDS failover ~60-120sn); 15sn sonra olup crash-loop'a
+	// girmek yerine DB_CONNECT_TIMEOUT boyunca dene.
+	connectTimeout, err := time.ParseDuration(getEnv("DB_CONNECT_TIMEOUT", "2m"))
+	if err != nil {
+		log.Fatal("invalid DB_CONNECT_TIMEOUT: ", err)
+	}
+	deadline := time.Now().Add(connectTimeout)
+	for {
 		if err = db.Ping(); err == nil {
 			break
 		}
+		if time.Now().After(deadline) {
+			log.Fatal("could not connect to db: ", err)
+		}
 		log.Println("db not ready, retrying...", err)
 		time.Sleep(3 * time.Second)
-	}
-	if err != nil {
-		log.Fatal("could not connect to db: ", err)
 	}
 	log.Println("connected to db at", dbHost)
 
@@ -205,7 +236,7 @@ func main() {
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.Ping(); err != nil {
 			log.Println("health check failed:", err)
-			writeJSON(w, 500, map[string]string{"status": "error", "error": err.Error()})
+			writeJSON(w, 500, map[string]string{"status": "error"})
 			return
 		}
 		writeJSON(w, 200, map[string]string{"status": "ok"})
@@ -228,13 +259,13 @@ func main() {
 			}
 			tx, err := db.Begin()
 			if err != nil {
-				http.Error(w, err.Error(), 500)
+				serverError(w, err)
 				return
 			}
 			res, err := tx.Exec("UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2", m.Delta, m.ProductID)
 			if err != nil {
 				tx.Rollback()
-				http.Error(w, err.Error(), 500)
+				serverError(w, err)
 				return
 			}
 			n, _ := res.RowsAffected()
@@ -247,12 +278,12 @@ func main() {
 				m.ProductID, m.Delta, m.Note).Scan(&m.ID, &m.CreatedAt)
 			if err != nil {
 				tx.Rollback()
-				http.Error(w, err.Error(), 500)
+				serverError(w, err)
 				return
 			}
 			err = tx.Commit()
 			if err != nil {
-				http.Error(w, err.Error(), 500)
+				serverError(w, err)
 				return
 			}
 			log.Printf("movement %d: product=%d delta=%d note=%s\n", m.ID, m.ProductID, m.Delta, m.Note)
@@ -262,7 +293,7 @@ func main() {
 
 		products, err := getProducts("id")
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			serverError(w, err)
 			return
 		}
 		writeJSON(w, 200, products)
@@ -283,7 +314,7 @@ func main() {
 			return
 		}
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			serverError(w, err)
 			return
 		}
 		writeJSON(w, 200, p)
@@ -292,7 +323,7 @@ func main() {
 	http.HandleFunc("/api/movements", func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query("SELECT id, product_id, delta, COALESCE(note, ''), created_at FROM movements ORDER BY id DESC LIMIT 100")
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			serverError(w, err)
 			return
 		}
 		defer rows.Close()
@@ -301,7 +332,7 @@ func main() {
 			var m Movement
 			err = rows.Scan(&m.ID, &m.ProductID, &m.Delta, &m.Note, &m.CreatedAt)
 			if err != nil {
-				http.Error(w, err.Error(), 500)
+				serverError(w, err)
 				return
 			}
 			movements = append(movements, m)
@@ -312,7 +343,7 @@ func main() {
 	http.HandleFunc("/api/reports", func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query("SELECT id, generated_at, total_products, total_quantity FROM daily_reports ORDER BY generated_at DESC LIMIT 50")
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			serverError(w, err)
 			return
 		}
 		defer rows.Close()
@@ -321,7 +352,7 @@ func main() {
 			var rp Report
 			err = rows.Scan(&rp.ID, &rp.GeneratedAt, &rp.TotalProducts, &rp.TotalQuantity)
 			if err != nil {
-				http.Error(w, err.Error(), 500)
+				serverError(w, err)
 				return
 			}
 			reports = append(reports, rp)
@@ -335,9 +366,9 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		products, err := getProducts("warehouse, name")
+		products, err := getProducts("warehouse")
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			serverError(w, err)
 			return
 		}
 		tmpl.Execute(w, products)

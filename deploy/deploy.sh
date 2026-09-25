@@ -74,12 +74,13 @@ DB_PASSWORD="$(aws secretsmanager get-secret-value \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["password"])')"
 [ -n "$DB_PASSWORD" ] || die "RDS sifresi okunamadi"
 
-# API token: varsa korunur, yoksa uretilir (her deploy'da degismesin)
-API_TOKEN="$(kubectl -n hive get secret hive-db \
-  -o jsonpath='{.data.HIVE_API_TOKEN}' 2>/dev/null | base64 -d || true)"
-if [ -z "$API_TOKEN" ]; then
-  API_TOKEN="$(openssl rand -hex 24)"
-  say "Yeni HIVE_API_TOKEN uretildi"
+# API token OPSIYONEL. Uptime botu POST'ta token gondermiyor; token set edilirse
+# gocte botun her yazmasi 401 alir. Sadece HIVE_API_TOKEN acikca export edilirse eklenir.
+API_TOKEN="${HIVE_API_TOKEN:-}"
+TOKEN_ARGS=()
+if [ -n "$API_TOKEN" ]; then
+  TOKEN_ARGS=(--from-literal=HIVE_API_TOKEN="$API_TOKEN")
+  say "HIVE_API_TOKEN set - POST /api/stock token isteyecek"
 fi
 
 kubectl -n hive create secret generic hive-db \
@@ -88,7 +89,7 @@ kubectl -n hive create secret generic hive-db \
   --from-literal=DB_NAME="$DB_NAME" \
   --from-literal=DB_USER="$DB_USER" \
   --from-literal=DB_PASSWORD="$DB_PASSWORD" \
-  --from-literal=HIVE_API_TOKEN="$API_TOKEN" \
+  ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 echo "  secret/hive-db hazir"
 
@@ -123,13 +124,11 @@ cat <<EOF
   Health     : curl http://$ALB/health
   Stok (GET) : curl http://$ALB/api/stock
 
-  Stok hareketi (POST - token gerekli):
+  Stok hareketi (POST):
     curl -X POST http://$ALB/api/stock \\
-      -H "Authorization: Bearer $API_TOKEN" \\
       -H 'Content-Type: application/json' \\
       -d '{"product_id":1,"delta":-5,"note":"eks test"}'
 
-  Token   : $API_TOKEN
   Pods    : kubectl -n hive get pods -o wide
   HPA     : kubectl -n hive get hpa hive -w
   Nodes   : kubectl get nodes -L capacity,topology.kubernetes.io/zone
