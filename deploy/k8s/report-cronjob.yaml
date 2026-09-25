@@ -1,7 +1,7 @@
 # Eski sunucudaki report.sh'in (root cron, */10) yerini alir: daily_reports'a
 # urun sayisi ve toplam stok ozeti yazar; /api/reports bunu okur.
 #
-# suspend: true -> GOC BITENE KADAR KAPALI. Eski sunucudaki cron hala calisiyor;
+# Cutover 2026-09-25 tamamlandi; trafik EKSte, bu yuzden aktif.
 # ikisi ayni anda yazarsa ayni raporu iki kez uretir ve replikasyonla cakisir.
 # Trafik gecisinden sonra suspend: false yapan bir commit yeterli (ArgoCD uygular).
 apiVersion: batch/v1
@@ -15,7 +15,7 @@ metadata:
 spec:
   schedule: "*/10 * * * *"
   timeZone: Etc/UTC
-  suspend: true
+  suspend: false
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 300
   successfulJobsHistoryLimit: 3
