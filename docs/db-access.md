@@ -9,7 +9,34 @@ SSH yok, public IP yok, açık port yok; her oturum CloudTrail'e yazılır. Bast
 - Session Manager eklentisi: `brew install --cask session-manager-plugin`, sonra `session-manager-plugin --version`.
 - PostgreSQL 16 istemcisi: `pg_dump --version` → `16.x` (sunucu 16; eski bir pg_dump reddeder).
 
-## 1. Port-forward aç (ayrı bir terminalde açık kalır)
+## Tek komut: `scripts/db-dump.sh`
+
+Aşağıdaki 1–3. adımları (port-forward, şifre, sayım, dump, sha256, doğrulama, oturumu kapatma) tek seferde yapar.
+Salt okunurdur; `pg_dump` yazmaları bloklamaz.
+
+```bash
+export AWS_PROFILE=<profil>
+./scripts/db-dump.sh --restore-check
+```
+
+Beklenen log (özet):
+- `port-forward is up after <n>s`
+- `server PostgreSQL 16, pg_dump 16`
+- `counts before dump (utc|products|movements|max_id|reports|sum_qty): ...`
+- `archive is readable: 3 tables with data`
+- `restore check passed: <n> movements (>= <m> counted before the dump)` (sadece `--restore-check` ile; Docker gerekir)
+- `done: dumps/hive-pg-<UTC>.dump (+ .counts, .dump.sha256)`
+
+Çıktılar `dumps/` altına (gitignored), log `scripts/logs/<UTC>.log`. Her çıkışta SSM oturumu kapatılır ve
+`PGPASSWORD` silinir. Seçenekler: `./scripts/db-dump.sh --help`.
+
+Hata durumunda: `session-manager-plugin` yoksa script başlamadan durur; bastion bulunamazsa
+"is enable_bastion applied?" der; port 60 sn'de açılmazsa SSM çıktısı `dumps/<...>.ssm.log`'dadır.
+
+Durum: script lokal olarak test edildi (sözdizimi, `--help`, hata yolları; SQL, sürüm kontrolü ve arşiv
+doğrulaması gerçek verinin kopyasına karşı). **Uçtan uca SSM çalıştırması bastion apply edilince yapılacak.**
+
+## Elle: 1. Port-forward aç (ayrı bir terminalde açık kalır)
 
 ```bash
 terraform -chdir=deploy/terraform output -raw db_port_forward_command
