@@ -216,6 +216,20 @@ variable "github_repository" {
   default     = "furkandogmuskloia/hiverepo"
 }
 
+variable "github_repository_subject" {
+  description = <<-EOT
+    Repo'da "immutable subject claims" acikken OIDC sub claim'i owner/repo
+    yerine sayisal ID'lerle pinlenmis halde gelir. O durumda bu degeri set
+    edin; bos birakilirsa github_repository kullanilir.
+
+    Guncel degeri sorgulamak icin:
+      gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
+    Donen sub_claim_prefix'teki "repo:" onekini atin.
+  EOT
+  type        = string
+  default     = "furkandogmuskloia@317830779/hiverepo@1387414537"
+}
+
 variable "alert_emails" {
   description = "Alarm e-postalari (SNS). Her adres bir onay e-postasi alir; onaylanana kadar bildirim gitmez."
   type        = list(string)
