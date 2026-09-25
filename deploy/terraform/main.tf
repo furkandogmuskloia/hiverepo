@@ -135,6 +135,16 @@ module "eks" {
       before_compute = true
       configuration_values = jsonencode({
         enableNetworkPolicy = "true"
+        env = {
+          # Prefix delegation olmadan node basina pod tavani ENI/IP limitiyle
+          # belirleniyor: t4g.small'da sadece 8. ArgoCD'nin 7 pod'u gelince
+          # cluster 24/24 doldu ve HPA'nin buyume alani kalmadi.
+          # Prefix delegation /28 blok atayarak bu tavani ~110'a cikariyor.
+          # NOT: max-pods node bootstrap'inda hesaplandigi icin yalnizca
+          # YENI node'lar faydalanir; mevcutlar rotasyona kadar 8'de kalir.
+          ENABLE_PREFIX_DELEGATION = "true"
+          WARM_PREFIX_TARGET       = "1"
+        }
       })
     }
   }

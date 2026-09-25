@@ -43,6 +43,14 @@ module "eks_blueprints_addons" {
   # NODE bazinda olceklenme: bekleyen pod varsa ASG'ye node ekler
   enable_cluster_autoscaler = true
   cluster_autoscaler = {
+    # Modulun varsayilani chart 9.35.0. Image'i v1.36.0 olarak dogru
+    # ayarliyor ama chart'in ClusterRole'u o surumun izledigi
+    # resource.k8s.io (resourceclaims/resourceslices) ve volumeattachments
+    # kaynaklarini KAPSAMIYOR. Sonuc: reflector "is forbidden" hatalari,
+    # CA ana dongusu bekleyen pod'lari hic degerlendirmiyordu - yani node
+    # olceklemesi sessizce calismiyordu.
+    chart_version = "9.59.0"
+
     set = [
       # priority expander: once spot grubunu dener, kapasite yoksa ondemand.
       # Oncelik tablosu autoscaler-priority.tf'teki ConfigMap'te.

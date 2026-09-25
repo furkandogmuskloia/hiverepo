@@ -78,8 +78,11 @@ variable "node_spot_min_size" {
 }
 
 variable "node_spot_desired_size" {
+  # 2 -> 4: cluster 24/24 pod ile doldu (node basina 8 tavan) ve HPA'nin
+  # buyume alani kalmadi. Prefix delegation yalnizca YENI node'lara
+  # uygulandigi icin bu artis ayni zamanda yuksek tavanli node getiriyor.
   type    = number
-  default = 2
+  default = 4
 }
 
 variable "node_spot_max_size" {
