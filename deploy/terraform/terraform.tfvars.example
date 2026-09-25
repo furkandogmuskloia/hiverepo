@@ -1,0 +1,15 @@
+# Ortama ozgu degerler. Kopyalayip terraform.tfvars olarak kullanin.
+# terraform.tfvars .gitignore'da - icine gercek degerleri yazmak guvenli.
+
+# Kubernetes API'sine DISARIDAN erisebilecek CIDR'lar (zorunlu).
+# Kendi cikis IP'nizi ogrenmek icin: curl -s https://checkip.amazonaws.com
+eks_public_access_cidrs = ["203.0.113.10/32"]
+
+# Cluster'a admin erisimi verilecek IAM kullanici adlari
+# eks_admin_users = ["ad.soyad"]
+
+# DNS cutover
+# dns_zone_name   = "chem.kloia.me."
+# dns_record_name = "chem.kloia.me"
+# legacy_ip       = "51.102.170.229"
+# cutover_to_eks  = false

@@ -117,8 +117,10 @@ variable "eks_public_access_cidrs" {
     Not: GitHub Actions gibi CI runner IP'leri dinamiktir; cluster'a
     DISARIDAN erisen bir CI varsa allowlist onu kirar.
   EOT
-  type        = list(string)
-  default     = ["5.27.16.209/32"]
+  # Bilerek VARSAYILANSIZ: bu deger ortama ozgu ve bayatlar. Repoda sabit
+  # durmasin diye zorunlu birakildi; terraform.tfvars ile verilir.
+  # Eksikse apply sessizce genis bir erisim acmak yerine hata verir.
+  type = list(string)
 }
 
 variable "eks_admin_users" {
@@ -141,7 +143,7 @@ variable "manage_dns" {
     Mevcut kayit state'e import EDILDI, bu yuzden true guvenli.
     Yeni bir ortamda once import gerekir:
       terraform import 'aws_route53_record.chem[0]' \
-        Z07389103CL53BOHXGNNK_chem.kloia.me_A
+        <zone-id>_<record-name>_A
   EOT
   type        = bool
   default     = true
@@ -150,11 +152,19 @@ variable "manage_dns" {
 variable "cutover_to_eks" {
   description = <<-EOT
     false: chem.kloia.me eski EC2'ye (legacy_ip) bakar.
-    true:  ALB'ye ALIAS. Geri alma ayni degiskeni false yapmak.
-    Sadece manage_dns = true iken etkili.
+    true:  ALB'ye ALIAS.
+
+    CUTOVER 2026-09-25 14:24 UTC'DE TAMAMLANDI, varsayilan bu yuzden true.
+    false biraksaydik duz bir "terraform apply" - kim calistirirsa calistirsin -
+    DNS'i sessizce eski sunucuya geri cevirirdi. Canli durum ne ise varsayilan
+    o olmali.
+
+    Geri almak (rollback) icin bilincli olarak -var cutover_to_eks=false.
+    Dikkat: cutover sonrasi RDS'e yazilanlar eskiye akmaz, rollback artik
+    veri kaybi demektir.
   EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "legacy_ip" {
@@ -164,8 +174,32 @@ variable "legacy_ip" {
 }
 
 variable "legacy_ttl" {
-  type    = number
-  default = 60
+  description = <<-EOT
+    Cutover oncesi A kaydinin TTL'i. Dusuk tutmak flip'in hizli yayilmasini
+    saglar; TTL'i dusurup ESKI TTL kadar (60sn) bekledikten SONRA cevirmek
+    gerekir, yoksa istemciler hala eski uzun TTL'i onbellekte tutuyor olur.
+
+    5sn'nin altina inmenin faydasi az: cogu resolver alt sinir uyguluyor
+    (30sn yaygin) ve sorgu hacmi artiyor.
+
+    NOT: cutover_to_eks = true olunca kayit ALIAS'a doner ve ALIAS'ta TTL
+    AYARLANAMAZ - Route53 hedefin (ALB) kendi TTL'ini kullanir (60sn).
+    Yani bu deger yalnizca gecis aninda ise yarar.
+  EOT
+  type        = number
+  default     = 10
+}
+
+variable "dns_zone_name" {
+  description = "Route53 hosted zone adi (sondaki nokta dahil)"
+  type        = string
+  default     = "chem.kloia.me."
+}
+
+variable "dns_record_name" {
+  description = "Cutover yapilacak kayit. Zone'un apex'i oldugu icin ALIAS sart."
+  type        = string
+  default     = "chem.kloia.me"
 }
 
 # HTTPS listener icin ayrildi; ingress henuz sadece HTTP.
