@@ -5,18 +5,25 @@
 | Workflow | Tetikleyici | PR'da | main'de |
 |---|---|---|---|
 | `app-ci` | uygulama kodu, Dockerfile | gofmt, vet, staticcheck, test, govulncheck, gitleaks, gosec, hadolint, trivy (config + imaj) | + imajı `linux/arm64` + `linux/amd64` olarak GHCR'a, tanımlıysa ECR'a push |
-| `infra-ci` | `deploy/terraform/**` | terraform fmt, validate, tflint, trivy misconfig | aynı kontroller |
+| `infra-ci` | `deploy/terraform/**` | terraform fmt, validate, tflint, trivy + plan (PR yorumu) | + onaylı apply (`production`) |
 
-## Henüz olmayan: plan/apply
+## Altyapı: plan ve apply sadece Actions'tan
 
-`deploy/terraform` şu an remote backend kullanmıyor (state lokalde). Brief'e göre altyapı
-**sadece GitHub Actions üzerinden** apply edilmeli ve state bucket'a sadece Actions rolü yazabiliyor.
-Bunun için:
+| Olay | Ne olur |
+|---|---|
+| `deploy/terraform/**` değiştiren PR | statik kontroller + `terraform plan`; plan PR'a yorum olarak düşer, destroy/replace varsa uyarı ile |
+| main'e merge | plan + **`production` onayı bekleyen** apply job'u; onaydan sonra plan yeniden alınır ve o plan uygulanır |
+| Aynı anda iki çalışma | `concurrency: terraform-hive` ile sıraya girer, iptal edilmez |
 
-1. `deploy/terraform`'a S3 backend eklenmeli ve mevcut lokal state oraya taşınmalı
-   (`terraform init -migrate-state`, state sahibinin yapması gerekir).
-2. `aws_profile` CI'da boş geçilmeli (`TF_VAR_aws_profile=""`); Actions OIDC ile kimlik alır.
-3. `infra-ci`'ya plan (PR'a yorum) ve apply (main, `production` onayı) job'ları eklenmeli.
+**Sıra (bir kez):**
+1. S3 backend'li Terraform main'de (state: `hive-tfstate-<hesap>`), `terraform plan` → `No changes`.
+2. OIDC rolleri (`github-actions.tf`) **tek seferlik laptop apply** ile kurulur (bootstrap istisnası, tarih/saatle kayda geçer).
+3. Repo değişkenleri ve `production` environment'ı oluşturulur (aşağıda).
+4. İlk Actions çalışması **sadece plan**: `No changes` görülmeli.
+5. Bundan sonra her altyapı değişikliği PR → plan → merge → onay → apply.
+6. En son: state bucket'ına sadece Actions rolünün yazabildiği bucket policy.
+
+**DNS cutover penceresinde başka hiçbir apply çalıştırılmaz** (state kilidi cutover'ı bloke edebilir).
 
 ## Gerekli repo ayarları
 
@@ -24,7 +31,9 @@ Settings → Secrets and variables → Actions → **Variables**:
 
 | Değişken | Örnek | Kullanan |
 |---|---|---|
-| `AWS_ROLE_ARN` | `arn:aws:iam::<hesap>:role/<actions-rolu>` | `app-ci` (ECR push) |
+| `TF_PLAN_ROLE_ARN` | `arn:aws:iam::<hesap>:role/hive-gha-plan` | `infra-ci` plan |
+| `TF_APPLY_ROLE_ARN` | `arn:aws:iam::<hesap>:role/hive-gha-apply` | `infra-ci` apply (production) |
+| `AWS_ROLE_ARN` | `arn:aws:iam::<hesap>:role/hive-gha-ecr` | `app-ci` (ECR push) |
 | `ECR_REPOSITORY` | `terraform output ecr_repository_url`'deki repo adı | `app-ci` |
 
 Değişkenler tanımlı değilse ECR adımları atlanır, hat kırılmaz; imaj yalnızca GHCR'a gider.
