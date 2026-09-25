@@ -175,3 +175,9 @@ variable "acm_certificate_arn" {
   type        = string
   default     = ""
 }
+
+variable "github_repository" {
+  description = "GitHub Actions OIDC ile AWS rollerini assume edebilecek repo (owner/name)."
+  type        = string
+  default     = "furkandogmuskloia/hiverepo"
+}
