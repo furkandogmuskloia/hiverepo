@@ -1,0 +1,124 @@
+name: infra-ci
+
+# Altyapı hattı. Kural: apply SADECE buradan (state bucket'a yalnızca Actions rolü yazabiliyor).
+# PR: fmt + validate + tflint + trivy misconfig + plan (PR'a yorum olarak).
+# main: aynı kontroller + apply, "production" environment onayı arkasında.
+
+on:
+  pull_request:
+    paths: ["infra/**"]
+  push:
+    branches: [main]
+    paths: ["infra/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# aynı state üzerinde iki plan/apply çakışmasın
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  AWS_REGION: eu-central-1
+  TF_DIR: infra
+
+jobs:
+  static:
+    name: fmt, validate, lint, misconfig
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: terraform fmt
+        run: terraform fmt -check -recursive "$TF_DIR"
+      - name: terraform validate
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+      - uses: terraform-linters/setup-tflint@v4
+      - name: tflint
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          tflint --init
+          tflint --recursive --format compact
+      - name: trivy config (IaC misconfig)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ env.TF_DIR }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+  plan:
+    name: plan
+    needs: static
+    if: vars.TF_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: terraform plan
+        id: plan
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          set -o pipefail
+          terraform init -input=false
+          terraform plan -input=false -no-color -out=tfplan | tee plan.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_DIR }}/tfplan
+          retention-days: 1
+      - name: Plan'ı PR'a yaz
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('${{ env.TF_DIR }}/plan.txt', 'utf8');
+            const body = '### terraform plan\n```\n' + plan.slice(-60000) + '\n```';
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  apply:
+    name: apply
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production # repo ayarlarında required reviewer tanımlanmalı
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ${{ env.TF_DIR }}
+      - name: terraform apply (plan'da görülen değişiklik, fazlası değil)
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -input=false
+          terraform apply -input=false tfplan
