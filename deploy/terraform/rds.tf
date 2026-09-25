@@ -68,10 +68,18 @@ module "rds" {
   # verdigi icin uygulanmis gibi gorunuyor - sessizce kaciyor.
   apply_immediately = true
 
-  # hackathon ayari - prod'da deletion_protection=true olmali
-  backup_retention_period = 1
-  skip_final_snapshot     = true
-  deletion_protection     = false
+  # Veri kaybi olmasin sarti: 7 gun zaman-noktasina geri donus (PITR, ~5 dk RPO).
+  # DB boyutu kadar yedek alani ucretsiz; 20 GiB icin ek maliyet ~0.
+  backup_retention_period  = 7
+  backup_window            = "01:00-02:00"
+  copy_tags_to_snapshot    = true
+  delete_automated_backups = false
+
+  # Instance silinirse once son bir snapshot alinir; yanlislikla silme engellenir.
+  # Kapatmak (teardown) icin once deletion_protection=false yapan ayri bir PR gerekir.
+  skip_final_snapshot              = false
+  final_snapshot_identifier_prefix = "${local.name}-pg-final"
+  deletion_protection              = true
 
   create_monitoring_role       = false
   performance_insights_enabled = false
