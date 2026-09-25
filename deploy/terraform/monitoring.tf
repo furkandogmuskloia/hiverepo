@@ -24,13 +24,56 @@ data "aws_lb_target_group" "hive" {
   tags = merge(local.alb_tags, { "ingress.k8s.aws/resource" = "hive/hive-hive:80" })
 }
 
-resource "aws_sns_topic" "alerts" {
-  name = "${local.name}-alerts"
+# Alarm bildirimleri kaynak adlari, metrik esikleri ve zamanlama iceriyor -
+# bir saldirgan icin kesif degeri var, o yuzden topic sifreleniyor.
+#
+# DIKKAT - sessiz hata tuzagi: sifreli bir SNS topic'ine CloudWatch ve RDS
+# ancak KMS key policy'sinde acikca izin verilirse yazabilir. Izin yoksa
+# alarm TETIKLENIR ama bildirim hic gitmez ve bu hicbir yerde hata olarak
+# gorunmez. Asagidaki policy tam da bunu engelliyor.
+resource "aws_kms_key" "alerts" {
+  description             = "${local.name} SNS alarm topic sifrelemesi"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
 
-  # Alarm bildirimleri kaynak adlari, metrik esikleri ve zamanlama iceriyor -
-  # bir saldirgan icin degerli kesif bilgisi. AWS yonetimli anahtar yeterli
-  # ve ucretsiz; CMK'ya gecmek istenirse tek satir degisiyor.
-  kms_master_key_id = "alias/aws/sns"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Anahtarin sahipsiz kalmamasi icin sart
+        Sid       = "AllowAccountAdmin"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        Sid    = "AllowServicePublish"
+        Effect = "Allow"
+        Principal = {
+          Service = [
+            "cloudwatch.amazonaws.com", # metrik alarmlari
+            "events.amazonaws.com",     # RDS event subscription
+            "rds.amazonaws.com",
+          ]
+        }
+        Action   = ["kms:GenerateDataKey*", "kms:Decrypt"]
+        Resource = "*"
+      },
+    ]
+  })
+
+  tags = local.tags
+}
+
+resource "aws_kms_alias" "alerts" {
+  name          = "alias/${local.name}-alerts"
+  target_key_id = aws_kms_key.alerts.key_id
+}
+
+resource "aws_sns_topic" "alerts" {
+  name              = "${local.name}-alerts"
+  kms_master_key_id = aws_kms_key.alerts.id
 }
 
 resource "aws_sns_topic_subscription" "email" {
