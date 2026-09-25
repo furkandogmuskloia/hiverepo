@@ -52,3 +52,9 @@ jobs:
           scan-ref: ${{ env.TF_DIR }}
           severity: CRITICAL,HIGH
           exit-code: "1"
+          # Onceki adimdaki "terraform init" ucuncu parti modulleri
+          # .terraform/modules altina indiriyor ve bunlarin icindeki ornek
+          # manifest'ler de taraniyordu (orn. eks modulunun karpenter/
+          # inflate.yaml'i KSV-0118 veriyor). Bunlar bizim kodumuz degil,
+          # duzeltilemez ve gercek bulgulari gizler.
+          skip-dirs: "**/.terraform"

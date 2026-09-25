@@ -1,5 +1,20 @@
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.10"
+
+  # State S3'te: ekipten birden fazla kisi apply edebilsin ve kimin ne
+  # uyguladigi izlenebilsin. Lokal state ile paralel apply'lar birbirini
+  # gormuyordu.
+  #
+  # Bucket'ta versioning ACIK - bozuk state'ten donmenin tek yolu.
+  # use_lockfile S3'un kendi kilit mekanizmasini kullanir; ayri bir
+  # DynamoDB tablosu gerekmiyor (terraform >= 1.10).
+  backend "s3" {
+    bucket       = "hive-tfstate-417732881703"
+    key          = "hive/terraform.tfstate"
+    region       = "eu-central-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 
   required_providers {
     aws        = { source = "hashicorp/aws", version = "~> 6.0" }
