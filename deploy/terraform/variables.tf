@@ -92,6 +92,78 @@ variable "db_instance_class" {
   default = "db.t4g.micro"
 }
 
+variable "eks_public_access_cidrs" {
+  description = <<-EOT
+    Kubernetes API'sine DISARIDAN erisebilecek CIDR'lar.
+
+    endpoint_private_access zaten acik, yani cluster icindeki her sey
+    (ArgoCD, controller'lar, pod'lar) bu listeden ETKILENMEZ. Burasi
+    sadece laptop'tan gelen kubectl'i ilgilendiriyor.
+
+    Su anki deger ekibin ortak cikis IP'si (halil ve furkan ayni NAT
+    arkasinda, ikisi de 5.27.16.209 goruyor). Ag degisirse - baska bir
+    mekana gecis, VPN, evden baglanma - bu deger GUNCELLENMELI.
+
+    Kilitlenme durumunda kurtarma:
+      aws eks update-cluster-config --name hive --region eu-central-1 \
+        --resources-vpc-config publicAccessCidrs=<yeni-ip>/32,endpointPublicAccess=true
+    AWS API erisimi bu listeden etkilenmedigi icin kimse kalici kilitlenmez.
+
+    Not: GitHub Actions gibi CI runner'larinin IP'si dinamiktir. Cluster'a
+    DISARIDAN erisen bir CI varsa allowlist onu kirar; ArgoCD cluster
+    icinde calistigi icin etkilenmez.
+  EOT
+  type        = list(string)
+  default     = ["5.27.16.209/32"]
+}
+
+variable "eks_admin_users" {
+  description = <<-EOT
+    Cluster'a admin erisimi verilecek IAM kullanici adlari (ARN degil, sadece ad).
+    Her biri icin EKS access entry + AmazonEKSClusterAdminPolicy olusturulur.
+    Cluster'i kuran kullanici bu listeye eklenmemeli, zaten admin.
+  EOT
+  type        = list(string)
+  default     = ["furkan.dogmus"]
+}
+
+# ---------------------------------------------------------------------------
+# DNS cutover (route53.tf)
+# ---------------------------------------------------------------------------
+
+variable "manage_dns" {
+  description = <<-EOT
+    chem.kloia.me A kaydini Terraform yonetsin mi.
+    Mevcut kayit state'e import EDILDI, bu yuzden true guvenli.
+    Import komutu (yeni bir ortamda gerekirse):
+      terraform import 'aws_route53_record.chem[0]' \
+        Z07389103CL53BOHXGNNK_chem.kloia.me_A
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "cutover_to_eks" {
+  description = <<-EOT
+    false: chem.kloia.me eski EC2'ye (legacy_ip) bakar.
+    true:  ALB'ye ALIAS. Geri alma ayni degiskeni false yapmak.
+    Sadece manage_dns = true iken etkili.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "legacy_ip" {
+  description = "Eski chem-hive EC2'sinin public IP'si"
+  type        = string
+  default     = "51.102.170.229"
+}
+
+variable "legacy_ttl" {
+  type    = number
+  default = 60
+}
+
 variable "acm_certificate_arn" {
   description = "Bos birakilirsa ALB sadece HTTP dinler. Dolu ise 443 + HTTP->HTTPS yonlendirme acilir."
   type        = string

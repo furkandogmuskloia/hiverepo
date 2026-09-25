@@ -58,8 +58,18 @@ module "rds" {
   create_db_subnet_group = false
   publicly_accessible    = false
 
-  # hackathon ayarlari - prod'da multi_az=true, deletion_protection=true
-  multi_az                = false
+  # Multi-AZ: AWS baska bir AZ'de senkron standby tutar ve arizada
+  # otomatik failover yapar. Acilmasi online bir islem - kesinti yok,
+  # instance ucreti yaklasik iki katina cikar (db.t4g.micro icin ~13->26 USD/ay).
+  multi_az = true
+
+  # Modulun varsayilani false; o haliyle multi_az gibi degisiklikler bakim
+  # penceresine (tue 23:11 UTC) kuyruklanip apply exit 0 verdigi icin
+  # uygulanmis gibi gorunuyor. Multi-AZ acilmasi online bir islem,
+  # hemen uygulanmasinda sakinca yok.
+  apply_immediately = true
+
+  # hackathon ayari - prod'da deletion_protection=true olmali
   backup_retention_period = 1
   skip_final_snapshot     = true
   deletion_protection     = false

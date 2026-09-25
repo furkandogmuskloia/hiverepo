@@ -11,7 +11,7 @@ id_rsa*
 *.tfstate
 *.tfstate.*
 *.tfplan
-tfplan
+tfplan*
 .terraform/
 .terraform.tfstate.lock.info
 *.auto.tfvars

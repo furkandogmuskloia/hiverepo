@@ -38,6 +38,8 @@ locals {
   node_labels_spot     = { capacity = "spot" }
 }
 
+data "aws_caller_identity" "current" {}
+
 data "aws_availability_zones" "available" {
   filter {
     name   = "opt-in-status"
@@ -92,13 +94,34 @@ module "eks" {
   name               = local.name
   kubernetes_version = var.kubernetes_version
 
-  # laptop'tan kubectl icin public endpoint acik.
-  # Prod'da kapatilip bastion/VPN uzerinden girilmeli.
-  endpoint_public_access                   = true
+  # laptop'tan kubectl icin public endpoint acik, ama hangi IP'lerden
+  # erisilebilecegi eks_public_access_cidrs ile daraltilabiliyor.
+  # endpoint_private_access varsayilan olarak acik: cluster icinden erisim
+  # (ArgoCD, controller'lar) allowlist'ten bagimsiz calisir.
+  endpoint_public_access       = true
+  endpoint_public_access_cidrs = var.eks_public_access_cidrs
+
   enable_cluster_creator_admin_permissions = true
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
+
+  # Cluster'i kuran (halil.bozan) zaten admin - bkz.
+  # enable_cluster_creator_admin_permissions. Ekip uyeleri buradan eklenir.
+  # EKS API authentication mode kullaniliyor, aws-auth ConfigMap'e gerek yok.
+  access_entries = {
+    for name in var.eks_admin_users : replace(name, ".", "-") => {
+      principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/${name}"
+      type          = "STANDARD"
+
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
 
   # most_recent: EKS'in o surum icin "varsayilan" addon'unu degil, uyumlu
   # en guncel addon surumunu kurar.

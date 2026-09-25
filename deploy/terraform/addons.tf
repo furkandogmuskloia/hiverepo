@@ -14,15 +14,26 @@ module "eks_blueprints_addons" {
   # Ingress kaynaklarini gercek ALB'ye ceviren controller
   enable_aws_load_balancer_controller = true
   aws_load_balancer_controller = {
+    # Modulun varsayilani v2.7.1 (Subat 2024) - EKS 1.36 icin fazla eski.
+    chart_version = "3.5.0"
+
     set = [
+      # KRITIK: controller VPC ID'yi normalde EC2 IMDS'ten okur, ama node'larda
+      # HttpPutResponseHopLimit=1 oldugu icin pod IMDS'e ulasamiyor (401) ve
+      # CrashLoopBackOff'a giriyor. Hop limitini 2 yapmak yerine degeri
+      # dogrudan veriyoruz - pod'larin IMDS'e erismemesi guvenlik acisindan
+      # zaten istenen durum.
+      {
+        name  = "vpcId"
+        value = module.vpc.vpc_id
+      },
+      {
+        name  = "region"
+        value = var.region
+      },
       {
         name  = "enableServiceMutatorWebhook"
         value = "false"
-      },
-      # controller'in kendisi de arm64 node'a dusmeli
-      {
-        name  = "nodeSelector.kubernetes\\.io/arch"
-        value = "arm64"
       }
     ]
   }
