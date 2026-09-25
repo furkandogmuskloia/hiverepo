@@ -13,4 +13,4 @@ resources:
 images:
   - name: hive
     newName: 417732881703.dkr.ecr.eu-central-1.amazonaws.com/hive
-    newTag: latest
+    newTag: 20260925-131428
