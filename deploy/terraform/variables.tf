@@ -210,6 +210,12 @@ variable "acm_certificate_arn" {
   default     = ""
 }
 
+variable "github_repository" {
+  description = "GitHub Actions OIDC ile AWS rollerini assume edebilecek repo (owner/name)."
+  type        = string
+  default     = "furkandogmuskloia/hiverepo"
+}
+
 variable "alert_emails" {
   description = "Alarm e-postalari (SNS). Her adres bir onay e-postasi alir; onaylanana kadar bildirim gitmez."
   type        = list(string)
