@@ -26,6 +26,9 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+        # metrik toplayici (Prometheus / CloudWatch agent) VPC icinden
+        - protocol: TCP
+          port: 9090
 
   egress:
     # CoreDNS

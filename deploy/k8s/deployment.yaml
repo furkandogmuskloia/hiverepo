@@ -21,6 +21,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: hive
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
     spec:
       securityContext:
         runAsNonRoot: true
@@ -58,6 +62,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # /metrics (Prometheus). Service/ALB'ye eklenmez, internete acilmaz.
+            - name: metrics
+              containerPort: 9090
 
           env:
             - name: PORT
