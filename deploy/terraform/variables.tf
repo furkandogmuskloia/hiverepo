@@ -152,11 +152,19 @@ variable "manage_dns" {
 variable "cutover_to_eks" {
   description = <<-EOT
     false: chem.kloia.me eski EC2'ye (legacy_ip) bakar.
-    true:  ALB'ye ALIAS. Geri alma ayni degiskeni false yapmak.
-    Sadece manage_dns = true iken etkili.
+    true:  ALB'ye ALIAS.
+
+    CUTOVER 2026-09-25 14:24 UTC'DE TAMAMLANDI, varsayilan bu yuzden true.
+    false biraksaydik duz bir "terraform apply" - kim calistirirsa calistirsin -
+    DNS'i sessizce eski sunucuya geri cevirirdi. Canli durum ne ise varsayilan
+    o olmali.
+
+    Geri almak (rollback) icin bilincli olarak -var cutover_to_eks=false.
+    Dikkat: cutover sonrasi RDS'e yazilanlar eskiye akmaz, rollback artik
+    veri kaybi demektir.
   EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "legacy_ip" {
