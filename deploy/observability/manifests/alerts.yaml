@@ -1,0 +1,129 @@
+# HIVE alarmlari. Ilke: semptoma alarm (kullanici/veri ne yasiyor), sebebe degil.
+# Her alarmda runbook linki var. Metrikler PR "Observability: JSON logs + RED metrics"
+# ile gelir; o merge edilene kadar bu kurallar "no data" durumunda kalir.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hive
+  namespace: hive
+  labels:
+    app.kubernetes.io/name: hive
+spec:
+  groups:
+    # ------------------------------------------------------------ servis
+    - name: hive.service
+      rules:
+        - alert: HiveDown
+          expr: absent(up{namespace="hive", pod=~"hive-.*"} == 1)
+          for: 2m
+          labels: { severity: critical }
+          annotations:
+            summary: "Hic saglikli HIVE pod'u metrik vermiyor"
+            description: "2 dakikadir hive namespace'inde calisan bir HIVE pod'u gorulmuyor."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/README.md#deploy-runbook
+
+        - alert: HiveHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{namespace="hive", code=~"5.."}[5m]))
+              / clamp_min(sum(rate(http_requests_total{namespace="hive"}[5m])), 1e-9) > 0.01
+          for: 2m
+          labels: { severity: critical }
+          annotations:
+            summary: "HIVE isteklerinin %1'inden fazlasi 5xx"
+            description: "Son 5 dk 5xx orani {{ $value | humanizePercentage }}."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/README.md#deploy-runbook
+
+        - alert: HiveSlowResponses
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace="hive", route!~"/health|/healthz"}[5m]))) > 0.5
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "HIVE p95 yanit suresi 500 ms uzerinde"
+            description: "p95 = {{ $value | humanizeDuration }}"
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/README.md#deploy-runbook
+
+        - alert: HiveDbPoolSaturated
+          expr: |
+            max(go_sql_in_use_connections{namespace="hive", db_name="hive"} / clamp_min(go_sql_max_open_connections{namespace="hive", db_name="hive"}, 1)) > 0.8
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "Bir HIVE pod'unun DB baglanti havuzu %80 dolu"
+            description: "Istekler baglanti beklemeye baslar; RDS max_connections ve pod sayisi birlikte kontrol edilmeli."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
+
+        - alert: HiveDbWaiting
+          expr: sum(rate(go_sql_wait_duration_seconds_total{namespace="hive", db_name="hive"}[5m])) > 0.5
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "HIVE istekleri DB baglantisi bekliyor"
+            description: "Saniyede {{ $value }} sn toplam bekleme."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
+
+    # ------------------------------------------------------------ veri (DB)
+    - name: hive.data
+      rules:
+        - alert: HiveBusinessMetricsDown
+          expr: max(hive_business_metrics_up{namespace="hive"}) == 0
+          for: 3m
+          labels: { severity: warning }
+          annotations:
+            summary: "Is metrikleri veritabanindan okunamiyor"
+            description: "Stok/rapor metrikleri gelmiyor; DB erisimi veya sorgu zaman asimi."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
+
+        - alert: HiveNegativeStock
+          expr: max(hive_products_negative_stock{namespace="hive"}) > 0
+          for: 1m
+          labels: { severity: critical }
+          annotations:
+            summary: "{{ $value }} urunun stogu sifirin altinda"
+            description: "Sistem fiziksel olarak imkansiz bir stok gosteriyor; depo ve sevkiyat bu veriye guveniyor. Hangi urunler: hive_product_quantity < 0."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
+
+        - alert: HiveCriticalMedicineLow
+          expr: |
+            max by (product, warehouse) (hive_product_quantity{namespace="hive", product=~"Insulin.*|Adrenaline.*|Heparin.*|Morphine.*"}) < 20
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "{{ $labels.product }} ({{ $labels.warehouse }}) stogu kritik: {{ $value }}"
+            description: "Hayati ilac stogu 20'nin altinda."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
+
+        - alert: HiveNoStockWrites
+          expr: max(hive_movements_last_5m{namespace="hive"}) == 0
+          for: 5m
+          labels: { severity: critical }
+          annotations:
+            summary: "Son 10 dakikada hic stok hareketi yazilmadi"
+            description: "Normalde dakikada ~60 hareket var. Yazma trafigi kesildi: istemciler baska yere mi yaziyor (DNS), yoksa yazmalar mi basarisiz?"
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/README.md#deploy-runbook
+
+        - alert: HiveReportStale
+          expr: max(hive_report_age_seconds{namespace="hive"}) > 1200
+          for: 5m
+          labels: { severity: warning }
+          annotations:
+            summary: "Rapor 20 dakikadir uretilmedi"
+            description: "hive-report CronJob'u calismiyor veya basarisiz; /api/reports eski veri gosteriyor."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
+
+        - alert: HiveReportJobFailed
+          expr: max(kube_job_status_failed{namespace="hive", job_name=~"hive-report-.*"}) > 0
+          for: 1m
+          labels: { severity: warning }
+          annotations:
+            summary: "hive-report job'u basarisiz oldu"
+            description: "Rapor gorevi DB hatasi aldi (sahte 0/0 rapor yazmak yerine bilerek basarisiz olur)."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
+
+        - alert: HiveControlledSubstanceLargeMovement
+          expr: sum by (product_id, direction) (increase(hive_large_movements_total{namespace="hive", product_id=~"5|10"}[15m])) > 0
+          labels: { severity: info }
+          annotations:
+            summary: "Kontrollu maddede buyuk hareket (urun {{ $labels.product_id }}, {{ $labels.direction }})"
+            description: "Tek seferde >= 50 adetlik hareket; uyum incelemesi icin log'da 'controlled substance movement' satirina bakin."
+            runbook_url: https://github.com/furkandogmuskloia/hiverepo/blob/main/docs/observability.md
