@@ -1,0 +1,108 @@
+# Izleme yigini - GitOps ile (app-of-apps). "hive" ArgoCD uygulamasi bu dosyayi
+# deploy/k8s -> ../observability uzerinden uygular; elle bir sey calistirilmaz.
+#
+# 1) kube-prometheus-stack (Helm): Prometheus + Alertmanager + Grafana + kube-state-metrics
+#    Hafif ayar: node-exporter kapali (node basina 8 pod siniri var), disk yok
+#    (cluster'da EBS CSI driver yok -> emptyDir, 24 saat saklama).
+# 2) hive-monitoring: HIVE'a ozel PodMonitor, alarm kurallari, Grafana dashboard'lari.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 91.5.2
+    helm:
+      valuesObject:
+        fullnameOverride: kps
+        nodeExporter:
+          enabled: false
+        kubeStateMetrics:
+          enabled: true
+        # EKS control plane bilesenleri erisilebilir degil; bos hedef alarmi uretmesin
+        kubeControllerManager: { enabled: false }
+        kubeScheduler: { enabled: false }
+        kubeEtcd: { enabled: false }
+        kubeProxy: { enabled: false }
+        defaultRules:
+          create: true
+          rules:
+            etcd: false
+            kubeControllerManager: false
+            kubeSchedulerAlerting: false
+            kubeSchedulerRecording: false
+            kubeProxy: false
+            node: false
+            nodeExporterAlerting: false
+            nodeExporterRecording: false
+        prometheus:
+          prometheusSpec:
+            retention: 24h
+            replicas: 1
+            # Tum namespace'lerdeki PodMonitor/PrometheusRule'lari oku (hive namespace'i dahil)
+            podMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            resources:
+              requests: { cpu: 100m, memory: 400Mi }
+              limits: { memory: 1Gi }
+        alertmanager:
+          alertmanagerSpec:
+            replicas: 1
+            resources:
+              requests: { cpu: 10m, memory: 32Mi }
+        grafana:
+          enabled: true
+          # Disari acilmaz: kubectl -n monitoring port-forward svc/kps-grafana 3000:80
+          persistence: { enabled: false }
+          defaultDashboardsTimezone: utc
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              searchNamespace: ALL
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+        prometheusOperator:
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Operator CRD'leri buyuk; client-side apply annotation limitine takiliyor
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hive-monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/furkandogmuskloia/hiverepo.git
+    targetRevision: main
+    path: deploy/observability/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hive
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # PodMonitor/PrometheusRule CRD'leri kube-prometheus-stack gelene kadar yok
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff: { duration: 15s, factor: 2, maxDuration: 3m }
