@@ -19,7 +19,7 @@ K8S_DIR="$REPO_ROOT/deploy/k8s"
 RENDER_DIR="$(mktemp -d)"
 trap 'rm -rf "$RENDER_DIR"' EXIT
 
-export AWS_PROFILE="${AWS_PROFILE:-kloiadaas}"
+# AWS kimligi standart zincirden gelir: gerekiyorsa once `export AWS_PROFILE=<profil>`.
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31mHATA: %s\033[0m\n' "$*" >&2; exit 1; }

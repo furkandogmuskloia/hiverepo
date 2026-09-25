@@ -8,7 +8,7 @@ output "cluster_name" {
 
 output "configure_kubectl" {
   description = "kubeconfig'i yazmak icin calistir"
-  value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.region} --profile ${var.aws_profile}"
+  value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.region}${var.aws_profile == null ? "" : " --profile ${var.aws_profile}"}"
 }
 
 output "ecr_repository_url" {

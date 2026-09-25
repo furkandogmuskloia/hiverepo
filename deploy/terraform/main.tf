@@ -5,12 +5,18 @@ locals {
   # local zone'da EKS node group ve RDS subnet group desteklenmiyor.
   azs = slice(data.aws_availability_zones.available.names, 0, 3)
 
+  # Kloia cloud-conventions: Environment, Project, Owner, ManagedBy, CostCenter zorunlu
   tags = {
-    Project   = "hive"
-    App       = "hive-stock"
-    ManagedBy = "terraform"
-    Env       = "hackathon"
+    Project     = "hive"
+    App         = "hive-stock"
+    Environment = "production"
+    Owner       = "chem-team"
+    CostCenter  = "umbrella-chemical"
+    ManagedBy   = "terraform"
   }
+
+  # --profile sadece aws_profile verildiyse eklenir (CI/OIDC'de profil yok)
+  aws_profile_args = var.aws_profile == null ? [] : ["--profile", var.aws_profile]
 
   # gp3 - gp2'den ucuz ve daha hizli
   node_block_device_mappings = {
