@@ -5,9 +5,9 @@ variable "region" {
 }
 
 variable "aws_profile" {
-  description = "AWS CLI profili"
+  description = "AWS CLI profili. Bos (null) ise standart kimlik zinciri kullanilir (AWS_PROFILE, OIDC, instance role)."
   type        = string
-  default     = "kloiadaas"
+  default     = null
 }
 
 variable "name" {
