@@ -35,3 +35,7 @@ hive_backup_*
 *.pem
 *.env
 .env.bak
+
+# db-dump.sh ciktilari (musteri verisi) ve loglari
+dumps/
+scripts/logs/

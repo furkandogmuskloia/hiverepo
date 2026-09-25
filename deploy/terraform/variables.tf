@@ -235,3 +235,9 @@ variable "alert_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "enable_bastion" {
+  description = "RDS'e SSM port-forward icin bastion (t4g.nano, ~3 USD/ay). Kullanilmadiginda false."
+  type        = bool
+  default     = true
+}
