@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -177,6 +178,8 @@ func authorized(r *http.Request) bool {
 }
 
 func main() {
+	initLogging()
+
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbUser := getEnv("DB_USER", "hive")
@@ -222,6 +225,9 @@ func main() {
 	}
 	log.Println("connected to db at", dbHost)
 
+	startMetricsServer(getEnv("METRICS_PORT", "9090"))
+	policy := loadMovementPolicy()
+
 	if err = bootstrap(); err != nil {
 		log.Fatal("bootstrap failed: ", err)
 	}
@@ -262,16 +268,17 @@ func main() {
 				serverError(w, err)
 				return
 			}
-			res, err := tx.Exec("UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2", m.Delta, m.ProductID)
+			var newQty int
+			err = tx.QueryRow("UPDATE products SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2 RETURNING quantity",
+				m.Delta, m.ProductID).Scan(&newQty)
+			if err == sql.ErrNoRows {
+				tx.Rollback()
+				http.Error(w, "product not found", 404)
+				return
+			}
 			if err != nil {
 				tx.Rollback()
 				serverError(w, err)
-				return
-			}
-			n, _ := res.RowsAffected()
-			if n == 0 {
-				tx.Rollback()
-				http.Error(w, "product not found", 404)
 				return
 			}
 			err = tx.QueryRow("INSERT INTO movements (product_id, delta, note, created_at) VALUES ($1, $2, $3, NOW()) RETURNING id, created_at",
@@ -286,7 +293,10 @@ func main() {
 				serverError(w, err)
 				return
 			}
-			log.Printf("movement %d: product=%d delta=%d note=%s\n", m.ID, m.ProductID, m.Delta, m.Note)
+			stockMovements.WithLabelValues("ok").Inc()
+			policy.observeMovement(traceID(r), m, newQty)
+			slog.Info("stock movement", "trace_id", traceID(r), "movement_id", m.ID,
+				"product_id", m.ProductID, "delta", m.Delta, "note", m.Note)
 			writeJSON(w, 201, m)
 			return
 		}
@@ -376,6 +386,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
+		Handler:           instrument(http.DefaultServeMux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

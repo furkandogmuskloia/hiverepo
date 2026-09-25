@@ -1,0 +1,6 @@
+# deploy/k8s bu klasoru dahil eder: "hive" ArgoCD uygulamasi izleme yiginini
+# (iki alt Application) de kendisi olusturur - elle kubectl apply gerekmez.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - applications.yaml
