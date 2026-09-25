@@ -19,7 +19,21 @@ data "aws_iam_openid_connect_provider" "github" {
 }
 
 locals {
-  github_repo  = var.github_repository
+  # DIKKAT: repo'da "immutable subject claims" acik. Bu durumda GitHub'in
+  # gonderdigi sub claim'i klasik "owner/repo" degil, hesap ve repo sayisal
+  # ID'leriyle pinlenmis halidir - repo yeniden adlandirilinca eski erisim
+  # devam etmesin diye:
+  #
+  #   klasik   : repo:furkandogmuskloia/hiverepo:ref:refs/heads/main
+  #   gonderilen: repo:furkandogmuskloia@317830779/hiverepo@1387414537:ref:refs/heads/main
+  #
+  # Klasik formla yazilirsa eslesme HIC olmaz ve assume
+  # "Not authorized to perform sts:AssumeRoleWithWebIdentity" ile duser -
+  # hata mesaji sebebi soylemedigi icin bulmasi zor.
+  #
+  # Guncel degeri sorgulamak icin:
+  #   gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
+  github_repo  = coalesce(var.github_repository_subject, var.github_repository)
   gha_oidc     = data.aws_iam_openid_connect_provider.github
   tf_state_arn = "arn:aws:s3:::hive-tfstate-${data.aws_caller_identity.current.account_id}"
 }
