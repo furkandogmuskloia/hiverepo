@@ -5,10 +5,10 @@ name: app-ci
 
 on:
   pull_request:
-    paths-ignore: ["infra/**", "**.md"]
+    paths-ignore: ["infra/**", "deploy/**", "**.md"]
   push:
     branches: [main]
-    paths-ignore: ["infra/**", "**.md"]
+    paths-ignore: ["infra/**", "deploy/**", "**.md"]
   workflow_dispatch:
 
 permissions:
@@ -144,3 +144,25 @@ jobs:
           else
             echo "::notice::AWS_ROLE_ARN / ECR_REPOSITORY tanımlı değil, ECR push atlandı"
           fi
+
+  promote:
+    name: GitOps promote (overlay image tag)
+    needs: image
+    if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != '' && vars.ECR_REPOSITORY != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Overlay'de imaj tag'ini commit SHA'ya çek
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=deploy/overlays/chem/kustomization.yaml
+          sed -i -E "s|^(    newTag: ).*|\1${GITHUB_SHA}|" "$file"
+          git diff --exit-code "$file" && { echo "değişiklik yok"; exit 0; }
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "deploy(chem): hive ${GITHUB_SHA::7}"
+          # GITHUB_TOKEN ile atılan commit yeni workflow tetiklemez; ArgoCD değişikliği çeker.
+          git push

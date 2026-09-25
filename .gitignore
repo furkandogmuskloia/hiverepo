@@ -2,3 +2,7 @@
 *.pem
 *.env
 .env.bak
+.bin/
+.terragrunt-cache/
+.terraform/
+.terraform.lock.hcl

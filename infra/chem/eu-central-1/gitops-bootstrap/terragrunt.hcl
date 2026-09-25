@@ -1,0 +1,58 @@
+include "root" {
+  path = find_in_parent_folders("root.hcl")
+}
+
+terraform {
+  source = "${dirname(find_in_parent_folders("root.hcl"))}//modules/argocd-application"
+}
+
+locals {
+  environment_vars = read_terragrunt_config(find_in_parent_folders("env.hcl"))
+  region_vars      = read_terragrunt_config(find_in_parent_folders("region.hcl"))
+  prefix           = local.environment_vars.inputs.prefix
+  region           = local.region_vars.inputs.region
+}
+
+dependency "eks" {
+  config_path = format("%s/../eks", get_terragrunt_dir())
+
+  mock_outputs = {
+    cluster_name                       = "chem-hive-eks"
+    cluster_endpoint                   = "https://mock.eks.amazonaws.com"
+    cluster_certificate_authority_data = "bW9jaw=="
+  }
+  mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  // CI statik doğrulamasında (kimlik bilgisi yok) state okunmaz, mock kullanılır.
+  skip_outputs = get_env("TG_SKIP_OUTPUTS", "false") == "true"
+}
+
+// ArgoCD (ve Application CRD'si) önce kurulmalı.
+dependencies {
+  paths = [format("%s/../eks-addons", get_terragrunt_dir())]
+}
+
+generate "k8s_providers" {
+  path      = "k8s-providers.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<-EOT
+    provider "helm" {
+      kubernetes = {
+        host                   = "${dependency.eks.outputs.cluster_endpoint}"
+        cluster_ca_certificate = base64decode("${dependency.eks.outputs.cluster_certificate_authority_data}")
+        exec = {
+          api_version = "client.authentication.k8s.io/v1beta1"
+          command     = "aws"
+          args        = ["eks", "get-token", "--cluster-name", "${dependency.eks.outputs.cluster_name}", "--region", "${local.region}"]
+        }
+      }
+    }
+  EOT
+}
+
+inputs = {
+  name                  = local.prefix
+  repo_url              = "https://github.com/furkandogmuskloia/hiverepo.git"
+  target_revision       = "main"
+  path                  = "deploy/overlays/chem"
+  destination_namespace = "hive"
+}

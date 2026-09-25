@@ -4,11 +4,11 @@
 
 | Workflow | Tetikleyici | PR'da | main'de |
 |---|---|---|---|
-| `app-ci` | uygulama kodu, Dockerfile | gofmt, vet, staticcheck, test, govulncheck, gitleaks, gosec, hadolint, trivy (config + imaj) | + imajı GHCR'a, tanımlıysa ECR'a push |
+| `app-ci` | uygulama kodu, Dockerfile | gofmt, vet, staticcheck, test, govulncheck, gitleaks, gosec, hadolint, trivy (config + imaj) | + imajı GHCR'a, tanımlıysa ECR'a push; overlay'deki imaj tag'ini commit SHA'ya çeker (GitOps) |
 | `infra-ci` | `infra/**` | fmt, validate, tflint, trivy misconfig, plan (PR'a yorum) | + `production` onayı arkasında apply |
 
 `terraform apply` yalnızca `infra-ci` üzerinden yapılır; state bucket'a sadece Actions rolü yazabilir.
-Apply, aynı çalıştırmada üretilen plan dosyasını uygular; plan'da görünmeyen bir değişiklik uygulanmaz.
+Altyapı Terragrunt ile `infra/` altında; ayrıntı ve runbook: `infra/README.md`.
 
 ## Gerekli repo ayarları
 
@@ -19,6 +19,7 @@ Settings → Secrets and variables → Actions → **Variables**:
 | `AWS_ROLE_ARN` | `arn:aws:iam::<hesap>:role/<actions-rolu>` | `app-ci` (ECR push) |
 | `ECR_REPOSITORY` | `chem-hive` | `app-ci` |
 | `TF_ROLE_ARN` | `arn:aws:iam::<hesap>:role/<actions-rolu>` | `infra-ci` (plan/apply) |
+| `TF_STATE_BUCKET` | organizatörün verdiği bucket | `infra-ci` (Terragrunt backend) |
 
 Değişkenler tanımlı değilse ilgili adımlar atlanır, hat kırılmaz: imaj yalnızca GHCR'a gider, plan/apply çalışmaz.
 

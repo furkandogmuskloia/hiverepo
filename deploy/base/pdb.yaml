@@ -1,0 +1,9 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hive
+  namespace: hive
+spec:
+  minAvailable: 2 # node güncellemesinde en az 2 pod ayakta
+  selector:
+    matchLabels: {}

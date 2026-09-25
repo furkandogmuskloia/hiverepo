@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hive
+  namespace: hive
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # yeni pod hazır olmadan eskisi kapanmaz
+      maxSurge: 1
+  selector:
+    matchLabels: {}
+  template:
+    spec:
+      serviceAccountName: hive
+      automountServiceAccountToken: false
+      # SHUTDOWN_DELAY (15s) + in-flight drain (20s) + pay
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: hive
+      containers:
+        - name: hive
+          image: hive # overlay'de ECR imajı + commit SHA ile değişir
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: hive-db
+          env:
+            - name: PORT
+              value: "8080"
+            # Boş RDS'e örnek veri yazılmasın; şema/veri göçle gelir.
+            - name: HIVE_BOOTSTRAP_DB
+              value: "false"
+            # ALB hedeften çıkarana kadar istek kabul etmeye devam et.
+            - name: SHUTDOWN_DELAY
+              value: 15s
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          livenessProbe:
+            # /health DB'ye bağlı; DB kesintisinde pod'lar öldürülmesin diye liveness TCP.
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
