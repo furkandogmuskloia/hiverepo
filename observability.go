@@ -125,6 +125,8 @@ func startMetricsServer(port string) {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(
 		httpRequests, httpDuration, stockMovements,
+		negativeStockWrites, controlledMovements, largeMovements,
+		newBusinessCollector(db),
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		collectors.NewDBStatsCollector(db, "hive"),
