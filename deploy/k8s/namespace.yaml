@@ -11,3 +11,7 @@ metadata:
     pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
+    # AWS LB Controller her yeni pod'a bir readiness gate ekler: pod, ALB hedefi
+    # "healthy" olana kadar Ready sayilmaz. Rolling update eski pod'u ancak yeni
+    # pod ALB'den trafik alabilir hale gelince kapatir.
+    elbv2.k8s.aws/pod-readiness-gate-inject: enabled
