@@ -8,6 +8,13 @@ metadata:
     # ip modu: ALB dogrudan pod IP'sine gider, node port atlamasi yok
     alb.ingress.kubernetes.io/target-type: ip
 
+    # KRITIK - cutover'in on kosulu.
+    # Eski sistem 8080'de dinliyor (80'de hicbir sey yok), dolayisiyla
+    # istemciler chem.kloia.me:8080'e geliyor. Bu anotasyon olmadan ALB
+    # yalnizca 80'de dinler ve DNS cevrildigi anda :8080'e gelen her istek
+    # baglanti hatasi alir.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTP": 8080}]'
+
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "10"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
