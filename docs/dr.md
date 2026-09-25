@@ -4,7 +4,7 @@
 
 | Ortam | Yedek | RPO (en fazla kaybedilecek veri) | RTO (geri dönüş süresi) | Kanıt | Durum |
 |---|---|---|---|---|---|
-| **Eski sunucu** (PostgreSQL 15, tek makine) | Saatlik `backup.sh` **2026-09-24'ten beri boş dosya üretiyor** (yanlış şifre, hata başka yere yazılıyor). Son sağlam dump: 2026-03-20 | **~6 ay** | bilinmiyor, hiç denenmemiş | — | ❌ Göç bitene kadar verinin tek kopyası |
+| **Eski sunucu** (PostgreSQL 15, tek makine) | Saatlik `backup.sh` **2026-03-24'ten beri başarısız**: 4.417 ardışık hata, DB şifresi değişmiş ama script güncellenmemiş; hata günlüğe değil cron mailine gidiyor, bugün de 20 baytlık boş dosya üretiyor. Son sağlam dump'ın dosya zamanı 2026-03-24 21:46 (adı 20260320) | **~6 ay** | bilinmiyor, hiç denenmemiş | — | ❌ Göç bitene kadar verinin tek kopyası |
 | Eski sunucu — bugünkü kurtarma dump'ı | 13:53 UTC, dışarıdan alınan tutarlı dump, laptop'ta | 13:53'ten sonrası | **29 sn** (restore) | Aşağıda: sayılar birebir | ✅ Alındı, restore edildi |
 | **RDS `hive-pg`** (PostgreSQL 16) | Otomatik yedek + zaman noktasına geri dönüş, **Multi-AZ** (senkron yedek makine) | AZ arızası: **~0**; mantıksal hata/silme: **~5 dk** (PITR) | AZ arızası: 1–2 dk otomatik failover; PITR: ~15–30 dk | `LatestRestorableTime` canlı | ✅ Multi-AZ açık · saklama **1 gün → 7 gün** PR'da |
 | RDS silme koruması | `deletion_protection`, silmede final snapshot | — | — | — | PR'da (bugün kapalı) |
