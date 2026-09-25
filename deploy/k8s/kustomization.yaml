@@ -16,4 +16,4 @@ resources:
 images:
   - name: hive
     newName: 417732881703.dkr.ecr.eu-central-1.amazonaws.com/hive
-    newTag: 20260925-152714
+    newTag: b0f1c8a62a6a457aa98fbd1b3bf02c03f2404f56
