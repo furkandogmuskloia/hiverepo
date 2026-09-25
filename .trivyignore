@@ -1,0 +1,11 @@
+# Bilinçli kabul edilen riskler. Her satır gerekçesiyle; sonraki adım README/sunumda.
+
+# EKS API endpoint public: deploy laptop'tan ve GitHub-hosted runner'lardan yapılıyor,
+# ikisinin de sabit IP'si yok. Sonraki adım: endpoint_public_access_cidrs ile kısıtlama
+# veya self-hosted runner + private endpoint.
+AWS-0040
+AWS-0041
+
+# Node'ların dışa çıkışı açık (EKS modülü varsayılanı): ECR/STS/EKS API'lerine ve
+# NAT üzerinden imaj çekmeye ihtiyaç var. Sonraki adım: VPC endpoint'leri + egress kısıtı.
+AWS-0104

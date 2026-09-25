@@ -1,0 +1,157 @@
+name: app-ci
+
+# Uygulama hattı: her PR'da kalite + güvenlik kontrolleri (shift-left),
+# main'e merge'de imaj build edilip registry'ye itilir.
+
+on:
+  pull_request:
+    paths-ignore: ["deploy/**", "**.md"]
+  push:
+    branches: [main]
+    paths-ignore: ["deploy/**", "**.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: hive
+  AWS_REGION: eu-central-1
+
+jobs:
+  go-checks:
+    name: Go lint, test, vuln
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "gofmt gerekli:"; echo "$unformatted"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+      - name: go test
+        run: go test -race -count=1 ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: build
+        run: CGO_ENABLED=0 go build -o /dev/null .
+
+  security:
+    name: Secrets + SAST + Dockerfile lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks (secret tarama)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: gosec (Go SAST)
+        uses: securego/gosec@v2.29.0
+        with:
+          args: "-no-fail -fmt sarif -out gosec.sarif ./..."
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('gosec.sarif') != ''
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
+      - name: hadolint (Dockerfile lint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+      - name: trivy config (Dockerfile / k8s / IaC misconfig)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+  image:
+    name: Build, scan, push image
+    needs: [go-checks, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # ECR için OIDC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (yerel, taranmak üzere)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64 # tarama için runner mimarisinde
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: trivy image (CRITICAL/HIGH açık varsa kır)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # --- sadece main: registry'ye it ---
+      - name: GHCR login
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: AWS credentials (OIDC)
+        if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: ECR login
+        id: ecr
+        if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-qemu-action@v3
+        if: github.ref == 'refs/heads/main'
+      - name: Image refs
+        id: refs
+        if: github.ref == 'refs/heads/main'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+        run: |
+          ghcr="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/${IMAGE_NAME}:${GITHUB_SHA}"
+          tags="$ghcr"
+          if [ -n "${ECR_REGISTRY:-}" ] && [ -n "${ECR_REPOSITORY:-}" ]; then
+            tags="$tags,$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+          else
+            echo "::notice::AWS_ROLE_ARN / ECR_REPOSITORY tanımlı değil, ECR push atlandı"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+      # EKS node'ları Graviton (arm64); amd64 de itilir ki lokal/CI'da çalışsın.
+      - name: Build & push (linux/arm64, linux/amd64)
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: ${{ steps.refs.outputs.tags }}
+          cache-from: type=gha

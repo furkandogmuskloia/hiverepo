@@ -92,6 +92,8 @@ variable "db_instance_class" {
   default = "db.t4g.micro"
 }
 
+# HTTPS listener icin ayrildi; ingress henuz sadece HTTP.
+# tflint-ignore: terraform_unused_declarations
 variable "acm_certificate_arn" {
   description = "Bos birakilirsa ALB sadece HTTP dinler. Dolu ise 443 + HTTP->HTTPS yonlendirme acilir."
   type        = string

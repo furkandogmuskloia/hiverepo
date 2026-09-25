@@ -1,0 +1,54 @@
+name: infra-ci
+
+# Altyapı (deploy/terraform) için shift-left kontroller: her PR'da fmt, validate,
+# tflint ve trivy misconfig. Kimlik bilgisi gerektirmez.
+#
+# plan/apply bu hatta henüz YOK: deploy/terraform'da remote backend tanımlı değil
+# (state lokalde). Brief'e göre apply sadece Actions'tan yapılmalı; S3 backend +
+# TF_ROLE_ARN eklendiğinde plan (PR) ve apply (main, production onayı) job'ları eklenecek.
+
+on:
+  pull_request:
+    paths: ["deploy/terraform/**", ".github/workflows/infra-ci.yml"]
+  push:
+    branches: [main]
+    paths: ["deploy/terraform/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_DIR: deploy/terraform
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  static:
+    name: fmt, validate, lint, misconfig
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive "$TF_DIR"
+      - name: terraform validate
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+      - uses: terraform-linters/setup-tflint@v4
+      - name: tflint
+        working-directory: ${{ env.TF_DIR }}
+        run: |
+          tflint --init
+          tflint --format compact
+      - name: trivy config (IaC misconfig)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ env.TF_DIR }}
+          severity: CRITICAL,HIGH
+          exit-code: "1"

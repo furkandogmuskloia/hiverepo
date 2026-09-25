@@ -30,3 +30,8 @@ hive_backup_*
 
 # --- Isletim sistemi -----------------------------------------------------
 .DS_Store
+
+# --- Anahtarlar / ortam dosyalari ---
+*.pem
+*.env
+.env.bak
