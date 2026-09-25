@@ -209,3 +209,9 @@ variable "acm_certificate_arn" {
   type        = string
   default     = ""
 }
+
+variable "alert_emails" {
+  description = "Alarm e-postalari (SNS). Her adres bir onay e-postasi alir; onaylanana kadar bildirim gitmez."
+  type        = list(string)
+  default     = []
+}
