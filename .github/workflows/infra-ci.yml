@@ -50,5 +50,7 @@ jobs:
         with:
           scan-type: config
           scan-ref: ${{ env.TF_DIR }}
+          # init'in indirdigi modullerin ornek manifest'leri (orn. "inflate") bizim kodumuz degil
+          skip-dirs: ${{ env.TF_DIR }}/.terraform
           severity: CRITICAL,HIGH
           exit-code: "1"
